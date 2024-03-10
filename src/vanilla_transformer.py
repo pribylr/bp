@@ -35,9 +35,14 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         self.d_k = d_k
         self.d_v = d_v   
     
-    def call(self, inputs):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
+    def call(self, inputs, to_mask=False):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
         QK = tf.matmul(inputs[0], inputs[1], transpose_b=True)  # (batch, heads, seq_len, seq_len)
         QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # (batch, heads, seq_len, seq_len)
+        if to_mask:
+            seq_len = QK.shape[-1]
+            mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
+            mask = mask[tf.newaxis, tf.newaxis, :, :]
+            QK += (mask * -1e19)
         QK = tf.nn.softmax(QK, axis=-1)  # (batch, heads, seq_len, seq_len)
         QKV = tf.matmul(QK, inputs[2])  # (batch, heads, seq_len, features+2 / heads)
         return QKV
@@ -78,7 +83,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         
     def call(self, inputs): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
         Q, K, V = self.createQKV(inputs)  # (batch, heads, seq_len, features+2 / heads)
-        scaled_dot_attention = self.dot_product((Q, K, V))  # (batch, heads, seq_len, features+2 / heads)
+        scaled_dot_attention = self.dot_product((Q, K, V), False)  # (batch, heads, seq_len, features+2 / heads)
         tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])
         concatenated = tf.reshape(tr_sda, (tr_sda.shape[0], tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # (batch, seq_len, features+2)
         res = self.linear_out(concatenated)
@@ -108,9 +113,9 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         })
         return config
 
-class Encoder_layer(tf.keras.layers.Layer):
+class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_k: int, d_v: int, multi_heads: int, d_ff: int, dropout_rate: float = 0.1, **kwargs):
-        super(Encoder_layer, self).__init__()
+        super(EncoderLayer, self).__init__()
         self.d_k = d_k
         self.d_v = d_v
         self.multi_heads = multi_heads
@@ -139,7 +144,7 @@ class Encoder_layer(tf.keras.layers.Layer):
         return y
 
     def get_config(self):
-        config = super(Encoder_layer, self).get_config()
+        config = super(EncoderLayer, self).get_config()
         config.update({
             'd_k': self.d_k,
             'd_v': self.d_v,
@@ -167,7 +172,7 @@ class Encoder(tf.keras.layers.Layer):
         
         d_k = x.shape[-1] / self.multi_heads
         d_v = d_k
-        enc_layer = Encoder_layer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
+        enc_layer = EncoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
         out = enc_layer(x)
         for _ in range(self.encoder_layers-1):
             out = enc_layer(out)
@@ -184,5 +189,17 @@ class Encoder(tf.keras.layers.Layer):
         })
         return config
 
+class DecoderLayer(tf.keras.layers.Layer):
+    def __init__(self, d_k: int, d_v: int, multi_heads: int, d_ff: int, dropout_rate: float = 0.1, **kwargs):
+        super(DecoderLayer, self).__init__()
+        self.d_k = d_k
+        self.d_v = d_v
+        self.multi_heads = multi_heads
+        self.d_ff = d_ff
+        self.dropout_rate = dropout_rate
+        #self.
+
+    #def call(self, input):
+        
         
 
