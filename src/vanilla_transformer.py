@@ -164,7 +164,6 @@ class Encoder(tf.keras.layers.Layer):
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.encoder_layers = encoder_layers
-        self.encoder_layers_list = list()
         self.time_embedding = Time2Vector(input_seq_len)    
             
     def call(self, input):
@@ -207,10 +206,34 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.ff_dropout = tf.keras.layers.Dropout(dropout_rate)
         self.ff_normalize = tf.keras.layers.LayerNormalization()
 
-    def call(self, input):  # (batch, seq_len, features+2)
+    def call(self, decoder_output, encoder_output):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
         print('decoder layer input', input.shape)
-        x = self.multihead_attn((input, input, input))  # (batch, seq_len, features+2)
+        x = self.masked_multihead_attn((input, input, input))  # (batch, seq_len, features+2)
         x = self.attn_dropout(x)
         x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
+
+        
+class Decoder(tf.keras.layers.Layer):
+    def __init__(self, input_seq_len:int, multi_heads: int, d_ff: int, decoder_layers: int, dropout_rate: float = 0.1, **kwargs):
+        super(Decoder, self).__init__()
+        self.d_k = d_k
+        self.d_v = d_v
+        self.multi_heads = multi_heads
+        self.d_ff = d_ff
+        self.dropout_rate = dropout_rate
+        self.decoder_layers = decoder_layers
+        self.time_embedding = Time2Vector(input_seq_len)
+
+    def call(decoder_output, encoder_output):
+        time_emb = self.time_embedding(decoder_output)  # (batch, seq_len, 2)
+        decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([decoder_output, time_emb])  # (batch, seq_len, features+2)
+
+        d_k = x.shape[-1] / self.multi_heads
+        d_v = d_k
+        dec_layer = DecoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
+        out = dec_layer(decoder_output_emb, encoder_output)
+        for _ in range(self.encoder_layers-1):
+            out = enc_layer(out)
+        return out
         
 
