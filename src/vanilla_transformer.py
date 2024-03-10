@@ -56,11 +56,12 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         return config
 
 class MultiHeadAttention(tf.keras.layers.Layer):
-    def __init__(self, d_k, d_v, heads, **kwargs):
+    def __init__(self, d_k, d_v, heads, to_mask=False, **kwargs):
         super(MultiHeadAttention, self).__init__()
         self.d_k = d_k
         self.d_v = d_v
         self.heads = heads
+        self.to_mask = to_mask
         self.dot_product = ScaledDotProductAttention(d_k, d_v)
         
     def build(self, input_shape):
@@ -83,7 +84,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         
     def call(self, inputs): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
         Q, K, V = self.createQKV(inputs)  # (batch, heads, seq_len, features+2 / heads)
-        scaled_dot_attention = self.dot_product((Q, K, V), False)  # (batch, heads, seq_len, features+2 / heads)
+        scaled_dot_attention = self.dot_product((Q, K, V), self.to_mask)  # (batch, heads, seq_len, features+2 / heads)
         tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])
         concatenated = tf.reshape(tr_sda, (tr_sda.shape[0], tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # (batch, seq_len, features+2)
         res = self.linear_out(concatenated)
@@ -121,7 +122,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.multi_heads = multi_heads
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.multihead_attn = MultiHeadAttention(d_k, d_v, multi_heads)
+        self.multihead_attn = MultiHeadAttention(d_k, d_v, multi_heads, to_mask=False)
         self.attn_dropout = tf.keras.layers.Dropout(dropout_rate)
         self.attn_normalize = tf.keras.layers.LayerNormalization()
 
@@ -197,9 +198,19 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.multi_heads = multi_heads
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        #self.
-
-    #def call(self, input):
         
+        self.masked_multihead_attn = MultiHeadAttention(d_k, d_v, multi_heads, to_mask=True)
+        self.multihead_attn = MultiHeadAttention(d_k, d_v, multi_heads, to_mask=False)
+        self.attn_dropout = tf.keras.layers.Dropout(dropout_rate)
+        self.attn_normalize = tf.keras.layers.LayerNormalization()
+
+        self.ff_dropout = tf.keras.layers.Dropout(dropout_rate)
+        self.ff_normalize = tf.keras.layers.LayerNormalization()
+
+    def call(self, input):  # (batch, seq_len, features+2)
+        print('decoder layer input', input.shape)
+        x = self.multihead_attn((input, input, input))  # (batch, seq_len, features+2)
+        x = self.attn_dropout(x)
+        x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
         
 
