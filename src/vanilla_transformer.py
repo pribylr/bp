@@ -35,8 +35,8 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         self.d_k = d_k
         self.d_v = d_v   
     
-    def call(self, inputs, to_mask=False):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
-        QK = tf.matmul(inputs[0], inputs[1], transpose_b=True)  # (batch, heads, seq_len, seq_len)
+    def call(self, query, key, value, to_mask=False):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
+        QK = tf.matmul(query, key, transpose_b=True)  # (batch, heads, seq_len, seq_len)
         QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # (batch, heads, seq_len, seq_len)
         if to_mask:
             seq_len = QK.shape[-1]
@@ -44,7 +44,7 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
             mask = mask[tf.newaxis, tf.newaxis, :, :]
             QK += (mask * -1e19)
         QK = tf.nn.softmax(QK, axis=-1)  # (batch, heads, seq_len, seq_len)
-        QKV = tf.matmul(QK, inputs[2])  # (batch, heads, seq_len, features+2 / heads)
+        QKV = tf.matmul(QK, value)  # (batch, heads, seq_len, features+2 / heads)
         return QKV
         
     def get_config(self):
@@ -78,22 +78,22 @@ class MultiHeadAttention(tf.keras.layers.Layer):
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
         self.linear_out = tf.keras.layers.Dense(
-            input_shape[0][-1],  # features+2
+            input_shape[-1],  # features+2
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
         
-    def call(self, inputs): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
-        Q, K, V = self.createQKV(inputs)  # (batch, heads, seq_len, features+2 / heads)
-        scaled_dot_attention = self.dot_product((Q, K, V), self.to_mask)  # (batch, heads, seq_len, features+2 / heads)
+    def call(self, query, key, value): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
+        Q, K, V = self.createQKV(query, key, value)  # (batch, heads, seq_len, features+2 / heads)
+        scaled_dot_attention = self.dot_product(Q, K, V, self.to_mask)  # (batch, heads, seq_len, features+2 / heads)
         tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])
         concatenated = tf.reshape(tr_sda, (tr_sda.shape[0], tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # (batch, seq_len, features+2)
         res = self.linear_out(concatenated)
         return res  # (batch, seq_len, features+2)
 
-    def createQKV(self, input):  # (x, x, x) : x.shape == (batch, seq_len, features+2)
-        q_list = [self.query(input[0]) for _ in range(self.heads)]  # [(batch, seq_len, d_k), ...]
-        k_list = [self.key(input[1]) for _ in range(self.heads)]
-        v_list = [self.value(input[2]) for _ in range(self.heads)]
+    def createQKV(self, query, key, value):  # (x, x, x) : x.shape == (batch, seq_len, features+2)
+        q_list = [self.query(query) for _ in range(self.heads)]  # [(batch, seq_len, d_k), ...]
+        k_list = [self.key(key) for _ in range(self.heads)]
+        v_list = [self.value(key) for _ in range(self.heads)]
         q_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in q_list]  # [(seq_len, batch, d_k), ...]
         k_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in k_list]
         v_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in v_list]
@@ -134,7 +134,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.ff_conv1D_2 = tf.keras.layers.Conv1D(filters=input_shape[-1], kernel_size=1)
 
     def call(self, input):  # (batch, seq_len, features+2)
-        x = self.multihead_attn((input, input, input))  # (batch, seq_len, features+2)
+        x = self.multihead_attn(input, input, input)  # (batch, seq_len, features+2)
         x = self.attn_dropout(x)
         x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
 
@@ -206,34 +206,65 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.ff_dropout = tf.keras.layers.Dropout(dropout_rate)
         self.ff_normalize = tf.keras.layers.LayerNormalization()
 
+    def build(self, input_shape):
+        self.ff_conv1D_1 = tf.keras.layers.Conv1D(filters=self.d_ff, kernel_size=1, activation='relu')
+        self.ff_conv1D_2 = tf.keras.layers.Conv1D(filters=input_shape[-1], kernel_size=1)
+        
     def call(self, decoder_output, encoder_output):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
-        print('decoder layer input', input.shape)
-        x = self.masked_multihead_attn((input, input, input))  # (batch, seq_len, features+2)
+        # first sublayer --- masked multi head attention for decoder output
+        x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output)  # (batch, seq_len, features+2)
         x = self.attn_dropout(x)
-        x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
+        x = self.attn_normalize(x + decoder_output)  # (batch, seq_len, features+2)
+        # second sublayer --- multi head attention for encoder output (query, key) and decoder output (value)
+        y = self.multihead_attn(x, encoder_output, encoder_output)  # q, k, v
+        y = self.attn_dropout(y)
+        y = self.attn_normalize(y + x)
+        print('second sublayer output:', y.shape)
+        # third sublayer --- feed forward
+        z = self.ff_conv1D_1(y)  # (batch, seq_len, d_ff)
+        z = self.ff_conv1D_2(z)  # (batch, seq_len, features+2)
+        z = self.ff_dropout(z)
+        z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
+        print('third sublayer output:', z.shape)
+        return z
 
         
 class Decoder(tf.keras.layers.Layer):
-    def __init__(self, input_seq_len:int, multi_heads: int, d_ff: int, decoder_layers: int, dropout_rate: float = 0.1, **kwargs):
+    def __init__(self, output_seq_len:int, multi_heads: int, d_ff: int, decoder_layers: int, last_known_data, dropout_rate: float = 0.1, **kwargs):
         super(Decoder, self).__init__()
-        self.d_k = d_k
-        self.d_v = d_v
         self.multi_heads = multi_heads
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.decoder_layers = decoder_layers
-        self.time_embedding = Time2Vector(input_seq_len)
+        self.output_seq_len = output_seq_len
+        self.output_counter = 1
+        self.time_embedding = Time2Vector(1)
+        self.generated_sequence = [last_known_data]
+        
+        self.linear_out = tf.keras.layers.Dense(
+            last_known_data.shape[-1],
+            kernel_initializer='glorot_uniform',
+            bias_initializer='glorot_uniform')
 
-    def call(decoder_output, encoder_output):
+    
+    def call(self, decoder_output, encoder_output):  # decoder_output == (), encoder_output == (batch, seq_len, features+2)
         time_emb = self.time_embedding(decoder_output)  # (batch, seq_len, 2)
+        self.output_counter += 1
+        self.time_embedding = Time2Vector(self.output_counter)
         decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([decoder_output, time_emb])  # (batch, seq_len, features+2)
+        
 
-        d_k = x.shape[-1] / self.multi_heads
+        d_k = decoder_output_emb.shape[-1] / self.multi_heads
         d_v = d_k
         dec_layer = DecoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
+        
         out = dec_layer(decoder_output_emb, encoder_output)
-        for _ in range(self.encoder_layers-1):
-            out = enc_layer(out)
-        return out
+        out = self.linear_out(out)
+        self.generated_sequence.append(out)
+        for _ in range(self.decoder_layers-1):
+            out = dec_layer(out, encoder_output)
+            out = self.linear_out(out)
+            self.generated_sequence.append(out)
+        return self.generated_sequence
         
 
