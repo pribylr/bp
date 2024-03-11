@@ -163,7 +163,8 @@ class Encoder(tf.keras.layers.Layer):
         self.multi_heads = multi_heads
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.encoder_layers = encoder_layers
+        self.encoder_layers_num = encoder_layers
+        self.encoder_layers = list()
         self.time_embedding = Time2Vector(input_seq_len)    
             
     def call(self, input):
@@ -172,11 +173,11 @@ class Encoder(tf.keras.layers.Layer):
         
         d_k = x.shape[-1] / self.multi_heads
         d_v = d_k
-        enc_layer = EncoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
-        out = enc_layer(x)
-        for _ in range(self.encoder_layers-1):
-            out = enc_layer(out)
-        return out
+        for _ in range(self.encoder_layers_num):
+            self.encoder_layers.append(EncoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate))
+        for i in range(self.encoder_layers_num):
+            x = self.encoder_layers[i](x)
+        return x
 
     def get_config(self):
         config = super(Encoder, self).get_config()
@@ -237,7 +238,8 @@ class Decoder(tf.keras.layers.Layer):
         self.output_seq_len = output_seq_len
         self.output_counter = 1
         self.time_embedding = Time2Vector(1)
-        self.generated_sequence = [last_known_data]
+        #self.generated_sequence = [last_known_data]
+        self.generated_sequence = list()
         
         self.linear_out = tf.keras.layers.Dense(
             last_known_data.shape[-1],
@@ -247,22 +249,18 @@ class Decoder(tf.keras.layers.Layer):
     
     def call(self, decoder_output, encoder_output):  # decoder_output == (), encoder_output == (batch, seq_len, features+2)
         time_emb = self.time_embedding(decoder_output)  # (batch, seq_len, 2)
-        self.output_counter += 1
-        self.time_embedding = Time2Vector(self.output_counter)
         decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([decoder_output, time_emb])  # (batch, seq_len, features+2)
+        #self.output_counter += 1
+        #self.time_embedding = Time2Vector(self.output_counter)
         
-
         d_k = decoder_output_emb.shape[-1] / self.multi_heads
         d_v = d_k
         dec_layer = DecoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate)
         
         out = dec_layer(decoder_output_emb, encoder_output)
-        out = self.linear_out(out)
-        self.generated_sequence.append(out)
-        for _ in range(self.decoder_layers-1):
-            out = dec_layer(out, encoder_output)
-            out = self.linear_out(out)
-            self.generated_sequence.append(out)
+        out = tf.cast(self.linear_out(out), dtype=tf.float64)
+        self.generated_sequence.append(out)  # first prediction
+
         return self.generated_sequence
         
 class Transformer(tf.keras.layers.Layer):
@@ -283,6 +281,6 @@ class Transformer(tf.keras.layers.Layer):
 
     def call(self, input):
         enc_out = self.encoder(input)
-        dec_out = self.decoder(self.last_known_data, enc_out)
-        return dec_out
+        #dec_out = self.decoder(self.last_known_data, enc_out)
+        return enc_out
         
