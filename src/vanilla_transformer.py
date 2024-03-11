@@ -219,13 +219,11 @@ class DecoderLayer(tf.keras.layers.Layer):
         y = self.multihead_attn(x, encoder_output, encoder_output)  # q, k, v
         y = self.attn_dropout(y)
         y = self.attn_normalize(y + x)
-        print('second sublayer output:', y.shape)
         # third sublayer --- feed forward
         z = self.ff_conv1D_1(y)  # (batch, seq_len, d_ff)
         z = self.ff_conv1D_2(z)  # (batch, seq_len, features+2)
         z = self.ff_dropout(z)
         z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
-        print('third sublayer output:', z.shape)
         return z
 
         
@@ -267,4 +265,24 @@ class Decoder(tf.keras.layers.Layer):
             self.generated_sequence.append(out)
         return self.generated_sequence
         
+class Transformer(tf.keras.layers.Layer):
+    def __init__(self, input_seq_len: int, output_seq_len: int, multi_heads: int, d_ff: int,
+        encoder_layers: int, decoder_layers: int, last_known_data, dropout_rate: float = 0.1, **kwargs):
+        super(Transformer, self).__init__()
+        self.input_seq_len = input_seq_len
+        self.output_seq_len = output_seq_len
+        self.multihead_attention_heads = multi_heads
+        self.d_ff = d_ff
+        self.encoder_layers = encoder_layers
+        self.decoder_layers = decoder_layers
+        self.last_known_data = last_known_data
+        self.dropout_rate = dropout_rate
+        
+        self.encoder = Encoder(input_seq_len, multi_heads, d_ff, encoder_layers, dropout_rate)
+        self.decoder = Decoder(output_seq_len, multi_heads, d_ff, decoder_layers, last_known_data, dropout_rate)
 
+    def call(self, input):
+        enc_out = self.encoder(input)
+        dec_out = self.decoder(self.last_known_data, enc_out)
+        return dec_out
+        
