@@ -157,9 +157,11 @@ class EncoderLayer(tf.keras.layers.Layer):
         return config
         
 class Encoder():
-    def __init__(self, input_seq_len: int, multi_heads: int, d_ff: int, encoder_layers: int, dropout_rate: float = 0.1, **kwargs):
+    def __init__(self, input_seq_len: int, multi_heads: int, d_k: int, d_v: int, d_ff: int, encoder_layers: int, dropout_rate: float = 0.1, **kwargs):
         self.input_seq_len = input_seq_len
         self.multi_heads = multi_heads
+        self.d_k = d_k
+        self.d_v = d_v
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.encoder_layers_num = encoder_layers
@@ -170,10 +172,10 @@ class Encoder():
         x = self.time_embedding(input)  # (batch, seq_len, 2)
         x = tf.keras.layers.Concatenate(axis=-1)([input, x])  # (batch, seq_len, features+2)
         
-        d_k = x.shape[-1] / self.multi_heads
-        d_v = d_k
+        #d_k = x.shape[-1] / self.multi_heads
+        #d_v = d_k
         for _ in range(self.encoder_layers_num):
-            self.encoder_layers.append(EncoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.dropout_rate))
+            self.encoder_layers.append(EncoderLayer(self.d_k, self.d_v, self.multi_heads, self.d_ff, self.dropout_rate))
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x)
         return x
@@ -229,13 +231,17 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         
 class Decoder():
-    def __init__(self, output_seq_len:int, multi_heads: int, d_ff: int, decoder_layers: int, last_known_data, dropout_rate: float = 0.1, **kwargs):
+    def __init__(self, output_seq_len:int, multi_heads: int, d_k: int, d_v: int, d_ff: int, decoder_layers: int, last_known_data, dropout_rate: float = 0.1, **kwargs):
+    
+        self.output_seq_len = output_seq_len    
         self.multi_heads = multi_heads
+        self.d_k = d_k
+        self.d_v = d_v
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.decoder_layers_num = decoder_layers
         self.decoder_layers = list()
-        self.output_seq_len = output_seq_len
+        
         self.output_counter = 1
         self.time_embedding = Time2Vector(1)
         self.generated_sequence = list()
@@ -249,10 +255,10 @@ class Decoder():
         # first outter loop
         time_emb = self.time_embedding(decoder_output)  # (batch, seq_len, 2)
         decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([decoder_output, time_emb])  # (batch, seq_len, features+2)
-        d_k = decoder_output_emb.shape[-1] / self.multi_heads
-        d_v = d_k
+        #d_k = decoder_output_emb.shape[-1] / self.multi_heads
+        #d_v = d_k
         for _ in range(self.decoder_layers_num):
-            self.decoder_layers.append(DecoderLayer(d_k, d_v, self.multi_heads, self.d_ff, self.last_known_data, self.dropout_rate))
+            self.decoder_layers.append(DecoderLayer(self.d_k, self.d_v, self.multi_heads, self.d_ff, self.last_known_data, self.dropout_rate))
         for i in range(self.decoder_layers_num):
             decoder_output_emb = self.decoder_layers[i](decoder_output_emb, encoder_output)
         out = tf.cast(decoder_output_emb, dtype=tf.float64)
@@ -271,23 +277,25 @@ class Decoder():
             self.time_embedding = Time2Vector(self.output_counter)
 
         return self.generated_sequence
-        
+
 
 class Transformer(tf.keras.models.Model):
-    def __init__(self, input_seq_len: int, output_seq_len: int, multi_heads: int, d_ff: int,
+    def __init__(self, input_seq_len: int, output_seq_len: int, multi_heads: int, d_k: int, d_v: int, d_ff: int,
         encoder_layers: int, decoder_layers: int, last_known_data, dropout_rate: float = 0.1, **kwargs):
         super(Transformer, self).__init__()
         self.input_seq_len = input_seq_len
         self.output_seq_len = output_seq_len
         self.multihead_attention_heads = multi_heads
+        self.d_k = d_k
+        self.d_v = d_v
         self.d_ff = d_ff
         self.encoder_layers = encoder_layers
         self.decoder_layers = decoder_layers
         self.last_known_data = last_known_data
         self.dropout_rate = dropout_rate
         
-        self.encoder = Encoder(input_seq_len, multi_heads, d_ff, encoder_layers, dropout_rate)
-        self.decoder = Decoder(output_seq_len, multi_heads, d_ff, decoder_layers, last_known_data, dropout_rate)
+        self.encoder = Encoder(input_seq_len, multi_heads, d_k, d_v, d_ff, encoder_layers, dropout_rate)
+        self.decoder = Decoder(output_seq_len, multi_heads, d_k, d_v, d_ff, decoder_layers, last_known_data, dropout_rate)
 
     def call(self, input):
         enc_out = self.encoder.call(input)
