@@ -216,7 +216,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output)  # (batch, seq_len, features+2)
         x = self.attn_dropout(x)
         x = self.attn_normalize(x + decoder_output)  # (batch, seq_len, features+2)
-        # second sublayer --- multi head attention for encoder output (query, key) and decoder output (value)
+        # second sublayer --- multi head attention for encoder output (key, value) and decoder output (query)
         y = self.multihead_attn(x, encoder_output, encoder_output)  # q, k, v
         y = self.attn_dropout(y)
         y = self.attn_normalize(y + x)
@@ -245,7 +245,6 @@ class Decoder(tf.keras.layers.Layer):
             last_known_data.shape[-1],
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
-#      result_tensor = tf.concat(tensor_list, axis=1)
     
     def call(self, decoder_output, encoder_output):  # decoder_output == (), encoder_output == (batch, seq_len, features+2)
         # outter loop: generating sequence of length self.output_seq_len
