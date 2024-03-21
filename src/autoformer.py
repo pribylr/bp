@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-class Series_decomp(tf.keras.layers.Layer):
+class Series_decomp(tf.keras.layers.Layer):  # ?
     def __init__(self, config, **kwargs):
         super(Series_decomp, self).__init__()
         self.pool_size = config['pool_size']
@@ -17,7 +17,8 @@ class Autocorrelation(tf.keras.layers.Layer):
         super(Autocorrelation, self).__init__()
         self.d_k = config['d_k']
         self.d_v = config['d_v']
-
+        self.heads = config['ac_heads']
+        
         self.query = tf.keras.layers.Dense(
             config['d_k'], 
             kernel_initializer='glorot_uniform', 
@@ -31,11 +32,31 @@ class Autocorrelation(tf.keras.layers.Layer):
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
 
-    def call(self, input):
-        queries = self.query(input[0])
-        keys = self.query(input[1])
-        values = self.query(input[2])
+    def createQKV(self, input):
+        queries = [self.query(input[0] for _ in range(self.heads)])  # [(batch, seq_len, features), ...]
+        keys = [self.query(input[1] for _ in range(self.heads)])
+        values = [self.query(input[2] for _ in range(self.heads)])
+        Q_4d = tf.stack(queries, axis=-1)  # (batch, seq_len, features, heads)
+        K_4d = tf.stack(keys, axis=-1)
+        V_4d = tf.stack(values, axis=-1)
+        Q_4d = tf.transpose(Q_4d, perm=[0, 3, 2, 1])  # (batch, heads, features, seq_len)
+        K_4d = tf.transpose(K_4d, perm=[0, 3, 2, 1])
+        V_4d = tf.transpose(V_4d, perm=[0, 3, 2, 1])
+        return Q_4d, K_4d, V_4d
+    
+    def time_delay_agg(self, input):
         
+        return input
+        
+    def call(self, input):
+        Q, K, V = self.createQKV(input)  # (batch, heads, features, seq_len)
+        Q = tf.signals.fft(Q)  # (batch, heads, features, seq_len)
+        K = tf.signals.fft(K)  # (batch, heads, features, seq_len)
+        K = tf.math.conj(K)
+        QK = tf.multiply(Q, K)
+        QK = tf.signal.ifft(QK)
+        delay = self.time_delay_agg((QK, V))
+        return delay
         
 
 class Encoder(tf.keras.layers.Layer):
@@ -46,6 +67,7 @@ class Encoder(tf.keras.layers.Layer):
         self.autocorrelation = Autocorrelation(config)
 
     def call(self, input):
+        ac = self.autocorrelation((input, input, input))
         return input
         
 class Decoder(tf.keras.layers.Layer):
@@ -82,7 +104,7 @@ class Autoformer(tf.keras.models.Model):
         return X_det, X_des
     
     def call(self, input):
-        X_det, X_des = self.prepare_input(input)        
+        X_det, X_des = self.prepare_input(input)
         enc_out = self.encoder(input)
         dec_out = self.decoder((enc_out, X_det, X_des))
         return dec_out
