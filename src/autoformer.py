@@ -1,6 +1,17 @@
 import tensorflow as tf
 import numpy as np
 
+class Series_decomp(tf.keras.layers.Layer):
+    def __init__(self, config, **kwargs):
+        super(Series_decomp, self).__init__()
+        self.pool_size = config['pool_size']
+        self.avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=config['pool_size'], strides=1, padding='same', data_format='channels_last')
+        
+    def call(self, input):
+        X_t = self.avg_pool1d(input)
+        X_s = input - X_t
+        return X_t, X_s
+
 class Autocorrelation(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Autocorrelation, self).__init__()
@@ -58,12 +69,7 @@ class Autoformer(tf.keras.models.Model):
         self.d_v = config['d_v']
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
-
-    def series_decomp(self, X):
-        avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=self.pool_size, strides=1, padding='same', data_format='channels_last')
-        X_t = avg_pool1d(X)
-        X_s = X - X_t
-        return X_t, X_s
+        self.series_decomp = Series_decomp(config)
         
     def prepare_input(self, input):
         X_ent, X_ens = self.series_decomp(input[:, (input.shape[1])//2:, :])
