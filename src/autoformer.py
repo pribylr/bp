@@ -1,17 +1,50 @@
 import tensorflow as tf
 import numpy as np
 
+class Autocorrelation(tf.keras.layers.Layer):
+    def __init__(self, config, **kwargs):
+        super(Autocorrelation, self).__init__()
+        self.d_k = config['d_k']
+        self.d_v = config['d_v']
+
+        self.query = tf.keras.layers.Dense(
+            config['d_k'], 
+            kernel_initializer='glorot_uniform', 
+            bias_initializer='glorot_uniform')
+        self.key = tf.keras.layers.Dense(
+            config['d_k'],
+            kernel_initializer='glorot_uniform',
+            bias_initializer='glorot_uniform')
+        self.value = tf.keras.layers.Dense(
+            config['d_v'],
+            kernel_initializer='glorot_uniform',
+            bias_initializer='glorot_uniform')
+
+    def call(self, input):
+        queries = self.query(input[0])
+        keys = self.query(input[1])
+        values = self.query(input[2])
+        
+        
+
 class Encoder(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, config, **kwargs):
         super(Encoder, self).__init__()
+        self.d_k = config['d_k']
+        self.d_v = config['d_v']
+        self.autocorrelation = Autocorrelation(config)
 
     def call(self, input):
         return input
         
 class Decoder(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, config,**kwargs):
         super(Decoder, self).__init__()
-
+        self.d_k = config['d_k']
+        self.d_v = config['d_v']
+        self.autocorrelation1 = Autocorrelation(config)
+        self.autocorrelation2 = Autocorrelation(config)
+    
     def call(self, input):
         return input
 
@@ -21,10 +54,11 @@ class Autoformer(tf.keras.models.Model):
         self.input_seq_len = config['input_seq_len']
         self.O = config['O']
         self.pool_size = config['pool_size']
-        self.encoder = Encoder()
-        self.decoder = Decoder()
+        self.d_k = config['d_k']
+        self.d_v = config['d_v']
+        self.encoder = Encoder(config)
+        self.decoder = Decoder(config)
 
-    
     def series_decomp(self, X):
         avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=self.pool_size, strides=1, padding='same', data_format='channels_last')
         X_t = avg_pool1d(X)
