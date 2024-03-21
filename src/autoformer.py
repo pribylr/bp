@@ -1,14 +1,30 @@
 import tensorflow as tf
 import numpy as np
 
+class Encoder(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super(Encoder, self).__init__()
+
+    def call(self, input):
+        return input
+        
+class Decoder(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super(Decoder, self).__init__()
+
+    def call(self, input):
+        return input
+
 class Autoformer(tf.keras.models.Model):
     def __init__(self, config, **kwargs):
         super(Autoformer, self).__init__()
         self.input_seq_len = config['input_seq_len']
         self.O = config['O']
         self.pool_size = config['pool_size']
-        #self.avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=pool_size, strides=1, padding='same', data_format='channels_last')
+        self.encoder = Encoder()
+        self.decoder = Decoder()
 
+    
     def series_decomp(self, X):
         avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=self.pool_size, strides=1, padding='same', data_format='channels_last')
         X_t = avg_pool1d(X)
@@ -25,7 +41,8 @@ class Autoformer(tf.keras.models.Model):
         X_des = tf.concat([X_ens, zeros], axis=1)
         return X_det, X_des
     
-    def call(self, input):  # 32 
+    def call(self, input):
         X_det, X_des = self.prepare_input(input)        
-        
-        return input
+        enc_out = self.encoder(input)
+        dec_out = self.decoder((enc_out, X_det, X_des))
+        return dec_out
