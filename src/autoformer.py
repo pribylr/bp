@@ -71,7 +71,6 @@ class Autocorrelation(tf.keras.layers.Layer):
         for i in range(k):
             # highest values indices for all batches, heads, features, for day k
             current_lag = -indices[..., i]  # (batch, heads, d_k)
-            print('  current_lag:', current_lag.shape)
             rolled_v =tf.map_fn(
                 fn=lambda elems: roll_each_feature(elems[0], elems[1]),
                 elems=(input[1], current_lag),
@@ -97,15 +96,29 @@ class Autocorrelation(tf.keras.layers.Layer):
         return delay
         
 
+class EncoderLayer(tf.keras.layers.Layer):
+    def __init__(self, config, **kwargs):
+        super(EncoderLayer, self).__init__()
+        self.autocorrelation = Autocorrelation(config)
+        
+    
+    def call(self, input):
+        x = self.autocorrelation((input, input, input))
+
+
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Encoder, self).__init__()
         self.d_k = config['d_k']
         self.d_v = config['d_v']
-        self.autocorrelation = Autocorrelation(config)
+        self.encoder_layers_num = config['encoder_layers']
+        self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
+        
 
     def call(self, input):
-        ac = self.autocorrelation((input, input, input))
+        for i in range(self.encoder_layers_num):
+            input = self.encoder_layers[i](input)
+        #ac = self.autocorrelation((input, input, input))
         return input
         
 class Decoder(tf.keras.layers.Layer):
