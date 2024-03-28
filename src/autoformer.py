@@ -7,9 +7,9 @@ class Series_decomp(tf.keras.layers.Layer):  # ?
         self.pool_size = config['pool_size']
         self.avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=config['pool_size'], strides=1, padding='same', data_format='channels_last')
         
-    def call(self, input):
-        X_t = self.avg_pool1d(input)
-        X_s = input - X_t
+    def call(self, input):  # (batch, seq_len/2, features)
+        X_t = self.avg_pool1d(input)  # (batch, seq_len/2, features)
+        X_s = input - X_t  # (batch, seq_len/2, features)
         return X_t, X_s
 
 class Autocorrelation(tf.keras.layers.Layer):
@@ -31,6 +31,10 @@ class Autocorrelation(tf.keras.layers.Layer):
             bias_initializer='glorot_uniform')
         self.value = tf.keras.layers.Dense(
             config['d_v'],
+            kernel_initializer='glorot_uniform',
+            bias_initializer='glorot_uniform')
+        self.out = tf.keras.layers.Dense(
+            config['d_k'],
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
 
@@ -93,6 +97,7 @@ class Autocorrelation(tf.keras.layers.Layer):
         QK = tf.multiply(Q, K)  # (batch, heads, d_k, seq_len)
         QK = tf.signal.ifft(QK)
         delay = self.time_delay_agg((QK, V))  # (batch, seq_len, d_v*heads)
+        
         return delay
         
 
@@ -144,14 +149,14 @@ class Autoformer(tf.keras.models.Model):
         self.decoder = Decoder(config)
         self.series_decomp = Series_decomp(config)
         
-    def prepare_input(self, input):
-        X_ent, X_ens = self.series_decomp(input[:, (input.shape[1])//2:, :])
+    def prepare_input(self, input):  # (batch, seq_len, features)
+        X_ent, X_ens = self.series_decomp(input[:, (input.shape[1])//2:, :])  # (batch, seq_len/2, features)
         mean = tf.reduce_mean(input, axis=1, keepdims=True)
-        mean = tf.tile(mean, [1, self.O, 1])
-        zeros = tf.zeros([input.shape[0], self.O, input.shape[2]], dtype=tf.float32)
-
-        X_det = tf.concat([X_ent, mean], axis=1)
-        X_des = tf.concat([X_ens, zeros], axis=1)
+        mean = tf.tile(mean, [1, self.O, 1])  # (batch, output_seq_len, features)
+        zeros = tf.zeros([input.shape[0], self.O, input.shape[2]], dtype=tf.float32)  # (batch, output_seq_len, features)
+        
+        X_det = tf.concat([X_ent, mean], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
+        X_des = tf.concat([X_ens, zeros], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
         return X_det, X_des
     
     def call(self, input):
