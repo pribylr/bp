@@ -7,9 +7,9 @@ class Series_decomp(tf.keras.layers.Layer):  # ?
         self.pool_size = config['pool_size']
         self.avg_pool1d = tf.keras.layers.AvgPool1D(pool_size=config['pool_size'], strides=1, padding='same', data_format='channels_last')
         
-    def call(self, input):  # (batch, seq_len/2, features)
-        X_t = self.avg_pool1d(input)  # (batch, seq_len/2, features)
-        X_s = input - X_t  # (batch, seq_len/2, features)
+    def call(self, input):  # (batch, seq_len, features)
+        X_t = self.avg_pool1d(input)  # (batch, seq_len, features)
+        X_s = input - X_t  # (batch, seq_len, features)
         return X_s, X_t
 
 
@@ -160,16 +160,24 @@ class Encoder(tf.keras.layers.Layer):
         x = self.embed(input)  # (batch, seq_len, d_model)
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x)  # (batch, seq_len, d_model)
-            print('encoder layer ended:', x.shape)
         return x
-        
+
+
+class DecoderLayer(tf.keras.layers.Layer):
+    def __init__(self.config, **kwarfs):
+        super(DecoderLayer, self).__init__()
+        self.autocorrelation1 = Autocorrelation(config)
+        self.autocorrelation2 = Autocorrelation(config)
+        self.series_decomp1 = Series_decomp(config)
+        self.series_decomp2 = Series_decomp(config)
+        self.series_decomp3 = Series_decomp(config)
+        self.feed_forward = FeedForward(config)
+    
 class Decoder(tf.keras.layers.Layer):
     def __init__(self, config,**kwargs):
         super(Decoder, self).__init__()
-        self.d_k = config['d_k']
-        self.d_v = config['d_v']
-        self.autocorrelation1 = Autocorrelation(config)
-        self.autocorrelation2 = Autocorrelation(config)
+        self.decoder_layers_num = config['decoder_layers']
+        self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layer'])]
     
     def call(self, input):
         return input
@@ -199,5 +207,5 @@ class Autoformer(tf.keras.models.Model):
     def call(self, input):
         X_des, X_det = self.prepare_input(input)
         enc_out = self.encoder(input)
-        dec_out = self.decoder((enc_out, X_det, X_des))
+        dec_out = self.decoder((enc_out, X_des, X_det))
         return dec_out
