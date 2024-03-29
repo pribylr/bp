@@ -61,9 +61,21 @@ class Autocorrelation(tf.keras.layers.Layer):
             bias_initializer='glorot_uniform')
 
     def createQKV(self, input):
-        queries = [self.query(input[0]) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
-        keys = [self.query(input[1]) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
-        values = [self.query(input[2]) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        Q = input[0]
+        K = input[1]
+        V = input[2]
+        if input[0].shape[1] > input[1].shape[1]:  # Q longer seq_len -- zero filling
+            paddings = tf.constant([[0, 0], [0, Q.shape[1] - K.shape[1]], [0, 0]])
+            K = tf.pad(K, paddings)
+            V = tf.pad(V, paddings)
+        if input[0].shape[1] < input[1].shape[1]:  # Q shorter seq_len -- truncation
+            len = Q.shape[1]
+            K = K[:, -len:, :]
+            V = V[:, -len:, :]
+            
+        queries = [self.query(Q) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        keys = [self.query(K) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        values = [self.query(V) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
         Q_4d = tf.stack(queries, axis=-1)  # (batch, seq_len, d_model/heads, heads)
         K_4d = tf.stack(keys, axis=-1)  # (batch, seq_len, d_model/heads, heads)
         V_4d = tf.stack(values, axis=-1)  # (batch, seq_len, d_model/heads, heads)
@@ -89,7 +101,7 @@ class Autocorrelation(tf.keras.layers.Layer):
                     rolled_v_slice = tf.roll(v_slice, shift=current_lag, axis=0)  # (seq_len, )
                     rolled = rolled.write(idx, rolled_v_slice)
                     idx += 1
-            result = tf.reshape(rolled.stack(), (self.heads, int(self.d_model/self.heads), self.input_seq_len))  # (heads, d_model/heads, seq_len)
+            result = tf.reshape(rolled.stack(), (self.heads, int(self.d_model/self.heads), input[0].shape[-1]))  # (heads, d_model/heads, seq_len)
             return result
             
         time_delay_aggregated = []
@@ -106,6 +118,7 @@ class Autocorrelation(tf.keras.layers.Layer):
             
         stacked = tf.stack(time_delay_aggregated, axis=-1)  # (batch, heads, d_model/heads, seq_len, k)
         aggregated_representation = tf.reduce_sum(tf.stack(time_delay_aggregated, axis=-1), axis=-1)  # (batch, heads, d_model/heads, seq_len)
+        
         reshaped = tf.reshape(aggregated_representation, (aggregated_representation.shape[0], aggregated_representation.shape[1]*aggregated_representation.shape[2], aggregated_representation.shape[3]))  # (batch, heads*d_model/heads, seq_len)
         res = tf.transpose(reshaped, perm=[0, 2, 1])  # (batch, seq_len, d_model)
         return res
@@ -164,7 +177,7 @@ class Encoder(tf.keras.layers.Layer):
 
 
 class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self.config, **kwarfs):
+    def __init__(self, config, **kwarfs):
         super(DecoderLayer, self).__init__()
         self.autocorrelation1 = Autocorrelation(config)
         self.autocorrelation2 = Autocorrelation(config)
@@ -172,15 +185,35 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.series_decomp2 = Series_decomp(config)
         self.series_decomp3 = Series_decomp(config)
         self.feed_forward = FeedForward(config)
+
+    def call(self, input):
+        # [0] -- embed S
+        # [1] -- T
+        # [2] -- enc out
+        x = self.autocorrelation1((input[0], input[0], input[0]))  # (batch, seq_len/2 + O, d_model)
+        x += input[0]
+        S1, T1 = self.series_decomp1(x)
+        y = self.autocorrelation2((S1, input[2], input[2]))
+        print('y:', y.shape)
+        
+        return input
     
 class Decoder(tf.keras.layers.Layer):
-    def __init__(self, config,**kwargs):
+    def __init__(self, config, **kwargs):
         super(Decoder, self).__init__()
         self.decoder_layers_num = config['decoder_layers']
-        self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layer'])]
+        self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
+        self.embed = tf.keras.layers.Dense(
+            config['d_model'],
+            kernel_initializer='glorot_uniform',
+            bias_initializer='glorot_uniform')
     
-    def call(self, input):
-        return input
+    def call(self, input):  # X_des (batch, seq_len/2 + O, features), X_det (batch, seq_len/2 + O, features), enc_out (batch, seq_len, d_model)
+        x = self.embed(input[0])  # (batch, seq_len/2 + O, d_model)
+        for i in range(self.decoder_layers_num):
+            x = self.decoder_layers[i]((x, input[1], input[2]))
+        
+        return x
 
 class Autoformer(tf.keras.models.Model):
     def __init__(self, config, **kwargs):
@@ -207,5 +240,5 @@ class Autoformer(tf.keras.models.Model):
     def call(self, input):
         X_des, X_det = self.prepare_input(input)
         enc_out = self.encoder(input)
-        dec_out = self.decoder((enc_out, X_des, X_det))
+        dec_out = self.decoder((X_des, X_det, enc_out))
         return dec_out
