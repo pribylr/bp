@@ -81,6 +81,7 @@ class Autocorrelation(tf.keras.layers.Layer):
         Q_4d = tf.stack(queries, axis=-1)  # (batch, seq_len, d_model/heads, heads)
         K_4d = tf.stack(keys, axis=-1)  # (batch, seq_len, d_model/heads, heads)
         V_4d = tf.stack(values, axis=-1)  # (batch, seq_len, d_model/heads, heads)
+        
         Q_4d = tf.cast(Q_4d, tf.complex64)
         K_4d = tf.cast(K_4d, tf.complex64)
         Q_4d = tf.transpose(Q_4d, perm=[0, 3, 2, 1])  # (batch, heads, d_model/heads, seq_len)
@@ -89,9 +90,8 @@ class Autocorrelation(tf.keras.layers.Layer):
         return Q_4d, K_4d, V_4d
     
     def time_delay_agg(self, input):  # (batch, heads, d_model/heads, seq_len) (batch, heads, d_model/heads, seq_len)
-        qk_abs = tf.abs(input[0])
         k = int(self.c*np.log(input[0].shape[-1]))
-        values, indices = tf.math.top_k(qk_abs, k=k)  # (batch, heads, d_model/heads, k)
+        values, indices = tf.math.top_k(input[0], k=k)
         values_sm = tf.nn.softmax(values)
         def roll_each_feature(value_matrix, lag):  # (heads, d_model/heads, seq_len) (heads, d_model/heads)
             rolled = tf.TensorArray(dtype=value_matrix.dtype, size=self.d_model)
@@ -121,7 +121,7 @@ class Autocorrelation(tf.keras.layers.Layer):
         stacked = tf.stack(time_delay_aggregated, axis=-1)  # (batch, heads, d_model/heads, seq_len, k)
         aggregated_representation = tf.reduce_sum(tf.stack(time_delay_aggregated, axis=-1), axis=-1)  # (batch, heads, d_model/heads, seq_len)
         
-        reshaped = tf.reshape(aggregated_representation, (aggregated_representation.shape[0], aggregated_representation.shape[1]*aggregated_representation.shape[2], aggregated_representation.shape[3]))  # (batch, heads*d_model/heads, seq_len)
+        reshaped = tf.reshape(aggregated_representation, (tf.shape(aggregated_representation)[0], aggregated_representation.shape[1]*aggregated_representation.shape[2], aggregated_representation.shape[3]))  # (batch, heads*d_model/heads, seq_len)
         res = tf.transpose(reshaped, perm=[0, 2, 1])  # (batch, seq_len, d_model)
         return res
         
@@ -132,8 +132,8 @@ class Autocorrelation(tf.keras.layers.Layer):
         K = tf.math.conj(K)
         QK = tf.multiply(Q, K)  # (batch, heads, d_model/heads, seq_len)
         QK = tf.signal.ifft(QK)
-        delay = self.time_delay_agg((QK, V))  # (batch, seq_len, d_model)
         
+        delay = self.time_delay_agg((tf.math.real(QK), V))  # (batch, seq_len, d_model)
         return delay
         
 
@@ -247,7 +247,7 @@ class Autoformer(tf.keras.models.Model):
         X_ens, X_ent = self.series_decomp(input[:, (input.shape[1])//2:, :])  # (batch, seq_len/2, features)
         mean = tf.reduce_mean(input, axis=1, keepdims=True)
         mean = tf.tile(mean, [1, self.O, 1])  # (batch, output_seq_len, features)
-        zeros = tf.zeros([input.shape[0], self.O, input.shape[2]], dtype=tf.float32)  # (batch, output_seq_len, features)
+        zeros = tf.zeros([tf.shape(input)[0], self.O, input.shape[2]], dtype=tf.float32)  # (batch, output_seq_len, features)
         
         X_det = tf.concat([X_ent, mean], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
         X_des = tf.concat([X_ens, zeros], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
