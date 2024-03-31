@@ -20,18 +20,18 @@ class FeedForward(tf.keras.layers.Layer):
         #self.d_model = config['d_model']
         #self.d_ff = config['d_ff']
         #self.dropout_rate = config['dropout_rate']
-        self.training = config['training']
+        #self.training = config['training']
         
         self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation=config['activation'])
         self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
         self.fc2 = tf.keras.layers.Dense(d_out, activation=config['activation'])
         self.dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
 
-    def call(self, input):
+    def call(self, input, training):
         x = self.fc1(input)
-        x = self.dropout1(x, training=self.training)
+        x = self.dropout1(x, training=training)
         x = self.fc2(x)
-        x = self.dropout2(x, training=self.training)
+        x = self.dropout2(x, training=training)
         return x
         
 
@@ -149,11 +149,11 @@ class EncoderLayer(tf.keras.layers.Layer):
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
     
-    def call(self, input):  # (batch, seq_len, d_model)
+    def call(self, input, training):  # (batch, seq_len, d_model)
         x = self.autocorrelation((input, input, input))  # (batch, seq_len, d_model)
         x += input
         S1, _ = self.series_decomp1(x)
-        x = self.feed_forward(S1)
+        x = self.feed_forward(S1, training)
         x += S1
         S2, _ = self.series_decomp2(x) 
         return S2  # (batch, seq_len, d_model)
@@ -171,10 +171,10 @@ class Encoder(tf.keras.layers.Layer):
             kernel_initializer='glorot_uniform',
             bias_initializer='glorot_uniform')
 
-    def call(self, input):
+    def call(self, input, training):
         x = self.embed(input)  # (batch, seq_len, d_model)
         for i in range(self.encoder_layers_num):
-            x = self.encoder_layers[i](x)  # (batch, seq_len, d_model)
+            x = self.encoder_layers[i](x, training)  # (batch, seq_len, d_model)
         return x
 
 
@@ -191,7 +191,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.mlp2 = FeedForward(config, config['d_out'])
         self.mlp3 = FeedForward(config, config['d_out'])
 
-    def call(self, input):
+    def call(self, input, training):
         # [0] -- embed S
         # [1] -- T
         # [2] -- enc out
@@ -201,14 +201,14 @@ class DecoderLayer(tf.keras.layers.Layer):
         y = self.autocorrelation2((S1, input[2], input[2]))  # (batch, seq_len/2 + O, d_model)
         y += S1
         S2, T2 = self.series_decomp2(y)
-        z = self.feed_forward(S2)
+        z = self.feed_forward(S2, training)
         z += S2
         S3, T3 = self.series_decomp3(z)
         
         T = input[1]
-        T += self.mlp1(T1)
-        T += self.mlp2(T2)
-        T += self.mlp3(T3)
+        T += self.mlp1(T1, training)
+        T += self.mlp2(T2, training)
+        T += self.mlp3(T3, training)
         return S3, T
     
 class Decoder(tf.keras.layers.Layer):
@@ -222,13 +222,13 @@ class Decoder(tf.keras.layers.Layer):
             bias_initializer='glorot_uniform')
         self.mlp = FeedForward(config, config['d_out'])
     
-    def call(self, input):  # X_des (batch, seq_len/2 + O, features), X_det (batch, seq_len/2 + O, features), enc_out (batch, seq_len, d_model)
+    def call(self, input, training):  # X_des (batch, seq_len/2 + O, features), X_det (batch, seq_len/2 + O, features), enc_out (batch, seq_len, d_model)
         S = self.embed(input[0])  # (batch, seq_len/2 + O, d_model)
         T = input[1]
         for i in range(self.decoder_layers_num):
-            S, T = self.decoder_layers[i]((S, T, input[2]))
+            S, T = self.decoder_layers[i]((S, T, input[2]), training)
         
-        S = self.mlp(S)
+        S = self.mlp(S, training)
         return S+T
 
 class Autoformer(tf.keras.models.Model):
@@ -253,9 +253,9 @@ class Autoformer(tf.keras.models.Model):
         X_des = tf.concat([X_ens, zeros], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
         return X_des, X_det
     
-    def call(self, input):
+    def call(self, input, training):
         X_des, X_det = self.prepare_input(input)
-        enc_out = self.encoder(input)
-        dec_out = self.decoder((X_des, X_det, enc_out))
+        enc_out = self.encoder(input, training)
+        dec_out = self.decoder((X_des, X_det, enc_out), training)
         out = dec_out[:, -self.O:, :]
         return out
