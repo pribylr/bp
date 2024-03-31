@@ -210,7 +210,8 @@ class DecoderLayer(tf.keras.layers.Layer):
         T += self.mlp2(T2, training)
         T += self.mlp3(T3, training)
         return S3, T
-    
+
+
 class Decoder(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Decoder, self).__init__()
@@ -230,6 +231,7 @@ class Decoder(tf.keras.layers.Layer):
         
         S = self.mlp(S, training)
         return S+T
+
 
 class Autoformer(tf.keras.models.Model):
     def __init__(self, config, **kwargs):
