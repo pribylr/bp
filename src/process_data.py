@@ -21,3 +21,13 @@ def diff_features(data: pd.DataFrame, period: int=1):
         data[col] = data[col].diff(period)
     data = data[1:]  # first row NaN
     return data
+
+def standardize_data(data: pd.DataFrame, train_pct: float):
+    # use information only from training part of the dataset
+    train_data_len = int(train_pct*data.shape[0])
+    for col in data.columns:
+        mean = np.mean(data[col][:train_data_len])
+        std = np.std(data[col][:train_data_len])
+        data[col] = (data[col]-mean)/std
+    return data
+    
