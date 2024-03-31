@@ -6,7 +6,7 @@ def create_Xy_data(data_for_X, data_for_y, input_seq_len: int, output_seq_len: i
     Xdata, ydata = [], []
     for i in range(input_seq_len, len(data_for_X)-(output_seq_len-1)):
         Xdata.append(data_for_X.iloc[i-input_seq_len:i])
-        ydata.append(data_for_y.iloc[i:i+number_of_days])
+        ydata.append(data_for_y.iloc[i:i+output_seq_len])
     return np.array(Xdata), np.array(ydata)
 
 def split_data(Xdata, ydata, train_pct, val_pct):
