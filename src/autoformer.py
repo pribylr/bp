@@ -16,12 +16,6 @@ class Series_decomp(tf.keras.layers.Layer):  # ?
 class FeedForward(tf.keras.layers.Layer):
     def __init__(self, config, d_out, **kwargs):
         super(FeedForward, self).__init__()
-        
-        #self.d_model = config['d_model']
-        #self.d_ff = config['d_ff']
-        #self.dropout_rate = config['dropout_rate']
-        #self.training = config['training']
-        
         self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation=config['activation'])
         self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
         self.fc2 = tf.keras.layers.Dense(d_out, activation=config['activation'])
@@ -38,8 +32,6 @@ class FeedForward(tf.keras.layers.Layer):
 class Autocorrelation(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Autocorrelation, self).__init__()
-        self.d_k = config['d_k']
-        self.d_v = config['d_v']
         self.d_model = config['d_model']
         self.heads = config['ac_heads']
         self.c = config['c']
@@ -97,7 +89,7 @@ class Autocorrelation(tf.keras.layers.Layer):
             rolled = tf.TensorArray(dtype=value_matrix.dtype, size=self.d_model)
             idx = 0
             for head in range(self.heads):
-                for feature in range(self.d_v):
+                for feature in range(self.d_model//self.heads):
                     current_lag = lag[head, feature]  # index nejvyssi hodnoty pro konkretni batch, head, feature
                     v_slice = value_matrix[head, feature, :]  # (seq_len, )
                     rolled_v_slice = tf.roll(v_slice, shift=current_lag, axis=0)  # (seq_len, )
@@ -155,15 +147,13 @@ class EncoderLayer(tf.keras.layers.Layer):
         S1, _ = self.series_decomp1(x)
         x = self.feed_forward(S1, training)
         x += S1
-        S2, _ = self.series_decomp2(x) 
+        S2, _ = self.series_decomp2(x)
         return S2  # (batch, seq_len, d_model)
 
 
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Encoder, self).__init__()
-        self.d_k = config['d_k']
-        self.d_v = config['d_v']
         self.encoder_layers_num = config['encoder_layers']
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
         self.embed = tf.keras.layers.Dense(
@@ -239,8 +229,6 @@ class Autoformer(tf.keras.models.Model):
         self.input_seq_len = config['input_seq_len']
         self.O = config['O']
         self.pool_size = config['pool_size']
-        self.d_k = config['d_k']
-        self.d_v = config['d_v']
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
         self.series_decomp = Series_decomp(config)
