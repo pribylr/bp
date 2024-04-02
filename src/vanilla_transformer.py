@@ -2,6 +2,22 @@ import tensorflow as tf
 import numpy as np
 
 
+class FeedForward(tf.keras.layers.Layer):
+    def __init__(self, config, d_out, **kwargs):
+        super(FeedForward, self).__init__()
+        self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation=config['activation'])
+        self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
+        self.fc2 = tf.keras.layers.Dense(d_out, activation=config['activation'])
+        self.dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
+
+    def call(self, input, training):
+        x = self.fc1(input)
+        x = self.dropout1(x, training=training)
+        x = self.fc2(x)
+        x = self.dropout2(x, training=training)
+        return x
+
+
 class Time2Vector(tf.keras.layers.Layer):
     def __init__(self, seq_len: int, **kwargs):
         super(Time2Vector, self).__init__()
@@ -133,20 +149,17 @@ class EncoderLayer(tf.keras.layers.Layer):
 
         self.ff_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
         self.ff_normalize = tf.keras.layers.LayerNormalization()
-        
-    def build(self, input_shape):
-        self.ff_conv1D_1 = tf.keras.layers.Conv1D(filters=self.d_ff, kernel_size=1, activation='relu')
-        self.ff_conv1D_2 = tf.keras.layers.Conv1D(filters=input_shape[-1], kernel_size=1)
+
+        self.feed_forward = FeedForward(config, config['d_model'])
+
 
     def call(self, input):  # (batch, seq_len, features+2)
         x = self.multihead_attn(input, input, input)  # (batch, seq_len, features+2)
-        x = self.attn_dropout(x)
+        x = self.attn_dropout(x)  # ?
         x += input
         #x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
 
-        y = self.ff_conv1D_1(x)  # (batch, seq_len, d_ff)
-        y = self.ff_conv1D_2(y)  # (batch, seq_len, features+2)
-        y = self.ff_dropout(y)
+        y = self.feed_forward(x)
         y += x
         #y = self.ff_normalize(x + y)  # (batch, seq_len, features+2)
         return y
@@ -203,20 +216,15 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         self.ff_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
         self.ff_normalize = tf.keras.layers.LayerNormalization()
-
-    def build(self, input_shape):
-        print()  # todo
-        self.ff_conv1D_1 = tf.keras.layers.Conv1D(filters=self.d_ff, kernel_size=1, activation='relu')
-        self.ff_conv1D_2 = tf.keras.layers.Conv1D(filters=input_shape[-1], kernel_size=1)
+        
+        self.feed_forward = FeedForward(config, config['d_model'])
         
     def call(self, decoder_output, encoder_output):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
         # first sublayer --- masked multi head attention for decoder output
-        #tf.print('start decoder 1st sublayer:\n', decoder_output)
         x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output)  # (batch, seq_len, features+2)
         x = self.attn_dropout1(x)
         x += decoder_output
         #x = self.attn_normalize1(x + decoder_output)  # (batch, seq_len, features+2)
-        #tf.print('end decoder 1st sublayer:\n', x)
         # second sublayer --- multi head attention for encoder output (key, value) and decoder output (query)
         y = self.multihead_attn(x, encoder_output, encoder_output)  # q, k, v
         y = self.attn_dropout2(y)
@@ -224,12 +232,9 @@ class DecoderLayer(tf.keras.layers.Layer):
         #y = self.attn_normalize2(y + x)
         #tf.print('decoder 2nd sublayer output:', y)
         # third sublayer --- feed forward
-        z = self.ff_conv1D_1(y)  # (batch, seq_len, d_ff)
-        z = self.ff_conv1D_2(z)  # (batch, seq_len, features+2)
-        z = self.ff_dropout(z)
+        z = self.feed_forward(y)
         z += y
         #z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
-        #tf.print('decoder 3rd sublayer output:', z)
         return z
 
 
