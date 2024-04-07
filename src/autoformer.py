@@ -40,6 +40,7 @@ class Autocorrelation(tf.keras.layers.Layer):
         self.key = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
         self.value = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
         self.out = tf.keras.layers.Dense(config['d_model'], activation=config['activation'])
+        self.k = int(config['c']*np.log(config['input_seq_len']))
 
     def createQKV(self, input):
         Q = input[0]
@@ -68,9 +69,6 @@ class Autocorrelation(tf.keras.layers.Layer):
         V_4d = tf.transpose(V_4d, perm=[0, 1, 3, 2])
         return Q_4d, K_4d, V_4d    
     
-    def get_k(self):
-        return int(self.c*np.log(self.input_seq_len))
-    
     def fast_fourier_operations(self, input):
         # along the seq_len dimension
         Q = tf.signal.fft(input[0])
@@ -82,11 +80,29 @@ class Autocorrelation(tf.keras.layers.Layer):
         corr = tf.reshape(corr, shape=(1, -1))  # (1, seq_len)
         return corr
     
+    def time_delay_train(self, W_topk, I_topk, V):  # (1, k) (1, k) (batch, heads, d_model/heads, seq_len)
+        B, H, D, L = V.shape
+        rolled = []
+        for i in range(self.k):
+            shift = tf.keras.backend.eval(I_topk[:, i]).item()
+            rolled.append(tf.roll(V, shift=-shift, axis=-1))
+        Vs_rolled = tf.stack(rolled, axis=1)  # (batch, k, heads, d_model/heads, seq_len)
+        W_topk = tf.cast(tf.reshape(W_topk, [1, -1, 1, 1, 1]), tf.float32)  # (1, k, 1, 1, 1)
+        Vs_weighted = Vs_rolled*W_topk  # (batch, k, heads, d_model/heads, seq_len)
+        R = tf.reduce_sum(Vs_weighted, axis=1)  # (batch, heads, d_model/heads, seq_len)
+        R = tf.reshape(R, [B, L, H*D])  # (batch, seq_len, d_model)
+        return R
+        
     def call(self, input, training):
         Q, K, V = self.createQKV(input)  # (batch, heads, d_model/heads, seq_len)
         corr = self.fast_fourier_operations((Q, K))
-        W_topk, I_topk = tf.math.top_k(corr, k=self.get_k())
+        W_topk, I_topk = tf.math.top_k(corr, k=self.k)
         W_topk = tf.nn.softmax(W_topk)
+        if training:
+            res = self.time_delay_train(W_topk, I_topk, V)
+            res = self.out(res)
+            return res
+            
         return -1
 
 class EncoderLayer(tf.keras.layers.Layer):
