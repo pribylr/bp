@@ -63,14 +63,30 @@ class Autocorrelation(tf.keras.layers.Layer):
         Q_4d = tf.cast(Q_4d, tf.complex64)
         K_4d = tf.cast(K_4d, tf.complex64)
         
-        Q_4d = tf.transpose(Q_4d, perm=[0, 1, 3, 2])  # (batch, )
-        print('q4k after transpose', Q_4d.shape)
+        Q_4d = tf.transpose(Q_4d, perm=[0, 1, 3, 2])  # (batch, heads, d_model/heads, seq_len)
         K_4d = tf.transpose(K_4d, perm=[0, 1, 3, 2])
         V_4d = tf.transpose(V_4d, perm=[0, 1, 3, 2])
         return Q_4d, K_4d, V_4d    
     
+    def get_k(self):
+        return int(self.c*np.log(self.input_seq_len))
+    
+    def fast_fourier_operations(self, input):
+        # along the seq_len dimension
+        Q = tf.signal.fft(input[0])
+        K = tf.signal.fft(input[1])
+        QK = tf.multiply(Q, tf.math.conj(K))
+        corr = tf.signal.ifft(QK)
+        corr = tf.math.real(corr)
+        corr = tf.reduce_mean(corr, axis=[0, 1, 2])  # (seq_len )
+        corr = tf.reshape(corr, shape=(1, -1))  # (1, seq_len)
+        return corr
+    
     def call(self, input, training):
         Q, K, V = self.createQKV(input)  # (batch, heads, d_model/heads, seq_len)
+        corr = self.fast_fourier_operations((Q, K))
+        W_topk, I_topk = tf.math.top_k(corr, k=self.get_k())
+        W_topk = tf.nn.softmax(W_topk)
         return -1
 
 class EncoderLayer(tf.keras.layers.Layer):
