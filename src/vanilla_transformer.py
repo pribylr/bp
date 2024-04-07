@@ -147,21 +147,16 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.attn_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
         self.attn_normalize = tf.keras.layers.LayerNormalization()
 
-        self.ff_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.ff_normalize = tf.keras.layers.LayerNormalization()
-
         self.feed_forward = FeedForward(config, config['d_model'])
-
+        self.ff_normalize = tf.keras.layers.LayerNormalization()
 
     def call(self, input, training):  # (batch, seq_len, features+2)
         x = self.multihead_attn(input, input, input, training)  # (batch, seq_len, features+2)
-        x = self.attn_dropout(x)  # ?
-        x += input
-        #x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
+        x = self.attn_dropout(x, training=training)
+        x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
 
         y = self.feed_forward(x)
-        y += x
-        #y = self.ff_normalize(x + y)  # (batch, seq_len, features+2)
+        y = self.ff_normalize(x + y)  # (batch, seq_len, features+2)
         return y
 
     def get_config(self):
@@ -222,19 +217,15 @@ class DecoderLayer(tf.keras.layers.Layer):
     def call(self, decoder_output, encoder_output, training):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
         # first sublayer --- masked multi head attention for decoder output
         x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output, training)  # (batch, seq_len, features+2)
-        x = self.attn_dropout1(x)
-        x += decoder_output
-        #x = self.attn_normalize1(x + decoder_output)  # (batch, seq_len, features+2)
+        x = self.attn_dropout1(x, training=training)
+        x = self.attn_normalize1(x + decoder_output)  # (batch, seq_len, features+2)
         # second sublayer --- multi head attention for encoder output (key, value) and decoder output (query)
         y = self.multihead_attn(x, encoder_output, encoder_output, training)  # q, k, v
-        y = self.attn_dropout2(y)
-        y += x
-        #y = self.attn_normalize2(y + x)
-        #tf.print('decoder 2nd sublayer output:', y)
+        y = self.attn_dropout2(y, training=training)
+        y = self.attn_normalize2(y + x)
         # third sublayer --- feed forward
         z = self.feed_forward(y)
-        z += y
-        #z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
+        z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
         return z
 
 
