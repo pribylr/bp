@@ -27,7 +27,20 @@ class FeedForward(tf.keras.layers.Layer):
         x = self.fc2(x)
         x = self.dropout2(x, training=training)
         return x
-                
+
+
+class Autocorrelation(tf.keras.layers.Layer):
+    def __init__(self, config, **kwargs):
+        super(Autocorrelation, self).__init__()
+        self.d_model = config['d_model']
+        self.heads = config['ac_heads']
+        self.c = config['c']
+        self.input_seq_len = config['input_seq_len']
+        self.query = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
+        self.key = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
+        self.value = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
+        self.out = tf.keras.layers.Dense(config['d_model'], activation=config['activation'])
+
 
 class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
