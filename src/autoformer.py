@@ -27,107 +27,7 @@ class FeedForward(tf.keras.layers.Layer):
         x = self.fc2(x)
         x = self.dropout2(x, training=training)
         return x
-        
-
-class Autocorrelation(tf.keras.layers.Layer):
-    def __init__(self, config, **kwargs):
-        super(Autocorrelation, self).__init__()
-        self.d_model = config['d_model']
-        self.heads = config['ac_heads']
-        self.c = config['c']
-        self.input_seq_len = config['input_seq_len']
-        
-        self.query = tf.keras.layers.Dense(
-            config['d_model']/config['ac_heads'], 
-            kernel_initializer='glorot_uniform', 
-            bias_initializer='glorot_uniform')
-        self.key = tf.keras.layers.Dense(
-            config['d_model']/config['ac_heads'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
-        self.value = tf.keras.layers.Dense(
-            config['d_model']/config['ac_heads'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
-        self.out = tf.keras.layers.Dense(
-            config['d_model'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
-
-    def createQKV(self, input):
-        Q = input[0]
-        K = input[1]
-        V = input[2]
-        if input[0].shape[1] > input[1].shape[1]:  # Q longer seq_len -- zero filling
-            paddings = tf.constant([[0, 0], [0, Q.shape[1] - K.shape[1]], [0, 0]])
-            K = tf.pad(K, paddings)
-            V = tf.pad(V, paddings)
-        if input[0].shape[1] < input[1].shape[1]:  # Q shorter seq_len -- truncation
-            len = Q.shape[1]
-            K = K[:, -len:, :]
-            V = V[:, -len:, :]
-            
-        queries = [self.query(Q) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
-        keys = [self.query(K) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
-        values = [self.query(V) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
-        Q_4d = tf.stack(queries, axis=-1)  # (batch, seq_len, d_model/heads, heads)
-        K_4d = tf.stack(keys, axis=-1)  # (batch, seq_len, d_model/heads, heads)
-        V_4d = tf.stack(values, axis=-1)  # (batch, seq_len, d_model/heads, heads)
-        
-        Q_4d = tf.cast(Q_4d, tf.complex64)
-        K_4d = tf.cast(K_4d, tf.complex64)
-        Q_4d = tf.transpose(Q_4d, perm=[0, 3, 2, 1])  # (batch, heads, d_model/heads, seq_len)
-        K_4d = tf.transpose(K_4d, perm=[0, 3, 2, 1])  # (batch, heads, d_model/heads, seq_len)
-        V_4d = tf.transpose(V_4d, perm=[0, 3, 2, 1])  # (batch, heads, d_model/heads, seq_len)
-        return Q_4d, K_4d, V_4d
-    
-    def time_delay_agg(self, input):  # (batch, heads, d_model/heads, seq_len) (batch, heads, d_model/heads, seq_len)
-        k = int(self.c*np.log(input[0].shape[-1]))
-        values, indices = tf.math.top_k(input[0], k=k)
-        values_sm = tf.nn.softmax(values)
-        def roll_each_feature(value_matrix, lag):  # (heads, d_model/heads, seq_len) (heads, d_model/heads)
-            rolled = tf.TensorArray(dtype=value_matrix.dtype, size=self.d_model)
-            idx = 0
-            for head in range(self.heads):
-                for feature in range(self.d_model//self.heads):
-                    current_lag = lag[head, feature]  # index nejvyssi hodnoty pro konkretni batch, head, feature
-                    v_slice = value_matrix[head, feature, :]  # (seq_len, )
-                    rolled_v_slice = tf.roll(v_slice, shift=current_lag, axis=0)  # (seq_len, )
-                    rolled = rolled.write(idx, rolled_v_slice)
-                    idx += 1
-            result = tf.reshape(rolled.stack(), (self.heads, int(self.d_model/self.heads), input[0].shape[-1]))  # (heads, d_model/heads, seq_len)
-            return result
-            
-        time_delay_aggregated = []
-        for i in range(k):
-            # highest values indices for all batches, heads, features, for day k
-            current_lag = -indices[..., i]  # (batch, heads, d_model/heads)
-            rolled_v =tf.map_fn(
-                fn=lambda elems: roll_each_feature(elems[0], elems[1]),
-                elems=(input[1], current_lag),
-                dtype=input[1].dtype
-            )  # (batch, heads, d_model/heads, seq_len)
-            weighted_rolled_V = rolled_v * tf.expand_dims(values_sm[..., i], axis=-1)  # (batch, heads, d_model/heads, seq_len)
-            time_delay_aggregated.append(weighted_rolled_V)
-            
-        stacked = tf.stack(time_delay_aggregated, axis=-1)  # (batch, heads, d_model/heads, seq_len, k)
-        aggregated_representation = tf.reduce_sum(tf.stack(time_delay_aggregated, axis=-1), axis=-1)  # (batch, heads, d_model/heads, seq_len)
-        
-        reshaped = tf.reshape(aggregated_representation, (tf.shape(aggregated_representation)[0], aggregated_representation.shape[1]*aggregated_representation.shape[2], aggregated_representation.shape[3]))  # (batch, heads*d_model/heads, seq_len)
-        res = tf.transpose(reshaped, perm=[0, 2, 1])  # (batch, seq_len, d_model)
-        return res
-        
-    def call(self, input):
-        Q, K, V = self.createQKV(input)  # (batch, heads, d_model/heads, seq_len)
-        Q = tf.signal.fft(Q)  # (batch, heads, d_model/heads, seq_len)
-        K = tf.signal.fft(K)  # (batch, heads, d_model/heads, seq_len)
-        K = tf.math.conj(K)
-        QK = tf.multiply(Q, K)  # (batch, heads, d_model/heads, seq_len)
-        QK = tf.signal.ifft(QK)
-        
-        delay = self.time_delay_agg((tf.math.real(QK), V))  # (batch, seq_len, d_model)
-        return delay
-        
+                
 
 class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
@@ -136,18 +36,25 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.series_decomp1 = Series_decomp(config)
         self.series_decomp2 = Series_decomp(config)
         self.feed_forward = FeedForward(config, config['d_model'])
-        self.linear1 = tf.keras.layers.Dense(
-            config['d_model'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
     
     def call(self, input, training):  # (batch, seq_len, d_model)
+        #print('enc layer AC start')
         x = self.autocorrelation((input, input, input))  # (batch, seq_len, d_model)
+        #print('enc layer AC end')
         x += input
+        
+        #print('enc layer series decomp 1 start')
         S1, _ = self.series_decomp1(x)
+        #print('enc layer series decomp 1 end')
+
+        #print('enc layer FF start')
         x = self.feed_forward(S1, training)
+        #print('enc layer FF end')
         x += S1
+
+        #print('enc layer series decomp 2 start')
         S2, _ = self.series_decomp2(x)
+        #print('enc layer series decomp 2 end')
         return S2  # (batch, seq_len, d_model)
 
 
@@ -185,20 +92,34 @@ class DecoderLayer(tf.keras.layers.Layer):
         # [0] -- embed S
         # [1] -- T
         # [2] -- enc out
+        #print('decoder layer AC 1 start')
         x = self.autocorrelation1((input[0], input[0], input[0]))  # (batch, seq_len/2 + O, d_model)
+        #print('decoder layer AC 1 end')
         x += input[0]
+        #print('decoder layer series decomp 1 start')
         S1, T1 = self.series_decomp1(x)
+        #print('decoder layer series decomp 1 end')
+        #print('decoder layer AC 2 start')
         y = self.autocorrelation2((S1, input[2], input[2]))  # (batch, seq_len/2 + O, d_model)
+        #print('decoder layer AC 2 end')
         y += S1
+        #print('decoder layer series decomp 2 start')
         S2, T2 = self.series_decomp2(y)
-        z = self.feed_forward(S2, training)
-        z += S2
-        S3, T3 = self.series_decomp3(z)
+        #print('decoder layer series decomp 2 end')
         
+        #print('decoder layer FF start')
+        z = self.feed_forward(S2, training)
+        #print('decoder layer FF end')
+        z += S2
+        #print('decoder layer series decomp 3 start')
+        S3, T3 = self.series_decomp3(z)
+        #print('decoder layer series decomp 3 start')
         T = input[1]
+        #print('decoder layer T mlp start')
         T += self.mlp1(T1, training)
         T += self.mlp2(T2, training)
         T += self.mlp3(T3, training)
+        #print('decoder layer T mlp end')
         return S3, T
 
 
