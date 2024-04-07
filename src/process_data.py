@@ -14,7 +14,7 @@ def split_data(Xdata, ydata, train_pct, val_pct):
     train_val_split = int(train_pct*(Xdata.shape[0]))
     val_test_split = int((train_pct+val_pct)*(Xdata.shape[0]))
     return Xdata[:train_val_split], ydata[:train_val_split], \
-            Xdata[:train_val_split:val_test_split], ydata[:train_val_split:val_test_split], \
+            Xdata[train_val_split:val_test_split], ydata[train_val_split:val_test_split], \
             Xdata[val_test_split:], ydata[val_test_split:]
 
 
