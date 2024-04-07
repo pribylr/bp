@@ -41,6 +41,37 @@ class Autocorrelation(tf.keras.layers.Layer):
         self.value = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
         self.out = tf.keras.layers.Dense(config['d_model'], activation=config['activation'])
 
+    def createQKV(self, input):
+        Q = input[0]
+        K = input[1]
+        V = input[2]
+        if Q.shape[1] > K.shape[1]:  # Q longer seq_len -- zero filling
+            paddings = tf.constant([[0, 0], [0, Q.shape[1] - K.shape[1]], [0, 0]])
+            K = tf.pad(K, paddings)
+            V = tf.pad(V, paddings)
+        if Q.shape[1] < K.shape[1]:  # Q shorter seq_len -- truncation
+            len = Q.shape[1]
+            K = K[:, -len:, :]
+            V = V[:, -len:, :]
+            
+        queries = [self.query(Q) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        keys = [self.query(K) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        values = [self.query(V) for _ in range(self.heads)]  # [(batch, seq_len, d_model/heads), ...]
+        Q_4d = tf.stack(queries, axis=1)  # (batch, heads, seq_len, d_model/heads)
+        K_4d = tf.stack(keys, axis=1)  # (batch, seq_len, heads, d_model/heads)
+        V_4d = tf.stack(values, axis=1)  # (batch, seq_len, heads, d_model/heads)
+        Q_4d = tf.cast(Q_4d, tf.complex64)
+        K_4d = tf.cast(K_4d, tf.complex64)
+        
+        Q_4d = tf.transpose(Q_4d, perm=[0, 1, 3, 2])  # (batch, )
+        print('q4k after transpose', Q_4d.shape)
+        K_4d = tf.transpose(K_4d, perm=[0, 1, 3, 2])
+        V_4d = tf.transpose(V_4d, perm=[0, 1, 3, 2])
+        return Q_4d, K_4d, V_4d    
+    
+    def call(self, input, training):
+        Q, K, V = self.createQKV(input)  # (batch, heads, d_model/heads, seq_len)
+        return -1
 
 class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
