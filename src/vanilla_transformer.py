@@ -3,6 +3,34 @@ import numpy as np
 tf.keras.backend.set_floatx('float64')
 
 
+class PositionalEncoding(tf.keras.layers.Layer):
+    def __init__(self, config, seq_len, **kwargs):
+        super(PositionalEncoding, self).__init__()
+        self.seq_len = seq_len
+        self.d_model = config['d_model']
+        self.linear = tf.keras.layers.Dense(config['d_model'], activation='linear')
+        self.dropout = tf.keras.layers.Dropout(0.1)
+        
+    def call(self, input, training):
+        x = self.linear(input)
+        pe = np.zeros((self.seq_len, self.d_model))  # (input_seq_len, d_model)
+        
+        position = np.arange(0, self.seq_len).reshape(-1, 1)  # (input_seq_len, 1)        
+        i2 = np.arange(0, self.d_model, 2)  # [0 2 ...]        
+        div_term = np.exp(i2 * np.log(10000.0) / self.d_model)  # (d_model / 2, ) ()
+
+        pe[:, 0::2] = np.sin(position * div_term)
+        pe[:, 1::2] = np.cos(position * div_term)
+        
+        #pe = tf.convert_to_tensor(pe, dtype=tf.float64)
+        pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
+        pe = tf.tile(pe, [tf.shape(input)[0], 1, 1])  # (batch, seq_len, d_model)
+
+        x += pe
+        x = self.dropout(x, training=training)
+        return x
+
+
 class FeedForward(tf.keras.layers.Layer):
     def __init__(self, config, d_out, **kwargs):
         super(FeedForward, self).__init__()
@@ -19,35 +47,6 @@ class FeedForward(tf.keras.layers.Layer):
         return x
 
 
-class Time2Vector(tf.keras.layers.Layer):
-    def __init__(self, seq_len: int, **kwargs):
-        super(Time2Vector, self).__init__()
-        self.seq_len = seq_len
-        
-    def build(self, input_shape):
-        self.weights_linear = self.add_weight(name='weights_linear', shape=(int(self.seq_len),), initializer='uniform', trainable=True)
-        self.bias_linear = self.add_weight(name='bias_linear', shape=(int(self.seq_len),), initializer='uniform', trainable=True)
-        
-        self.weights_periodic = self.add_weight(name='weights_periodic', shape=(int(self.seq_len),), initializer='uniform',trainable=True)
-        self.bias_periodic = self.add_weight(name='bias_periodic', shape=(int(self.seq_len),), initializer='uniform', trainable=True)
-
-    def call(self, input): # (batch, seq_len, features)
-        x = tf.math.reduce_mean(input, axis=-1) # (batch, seq_len)
-        time_linear = self.weights_linear * x + self.bias_linear# (batch, seq_len)
-        time_linear = tf.expand_dims(time_linear, axis=-1) # (batch, seq_len, 1)
-        
-        time_periodic = tf.math.sin(tf.multiply(x, self.weights_periodic) + self.bias_periodic)  # (batch, seq_len)
-        time_periodic = tf.expand_dims(time_periodic, axis=-1)  # (batch, seq_len, 1)
-        return tf.concat([time_linear, time_periodic], axis=-1)  # (batch size, seq_len, 2)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'seq_len': self.seq_len
-        })
-        return config
-
-
 class ScaledDotProductAttention(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(ScaledDotProductAttention, self).__init__()
@@ -59,9 +58,8 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # (batch, heads, seq_len, seq_len)
         if masked_mha and training:
             seq_len = QK.shape[-1]
-            mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
+            mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len), dtype=tf.float64), -1, 0)
             mask = mask[tf.newaxis, tf.newaxis, :, :]
-            mask = tf.cast(mask, tf.float64)  # new
             QK += (mask * -1e19)
         QK = tf.nn.softmax(QK, axis=-1)  # (batch, heads, seq_len, seq_len)
         QKV = tf.matmul(QK, value)  # (batch, heads, seq_len, features+2 / heads)
@@ -171,11 +169,10 @@ class Encoder(tf.keras.layers.Layer):
         self.dropout_rate = config['dropout_rate']
         self.encoder_layers_num = config['encoder_layers']
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
-        self.time_embedding = Time2Vector(config['input_seq_len'])
+        self.pe = PositionalEncoding(config, config['input_seq_len'])
             
     def call(self, input, training):
-        x = self.time_embedding(input)  # (batch, seq_len, 2)
-        x = tf.keras.layers.Concatenate(axis=-1)([input, x])  # (batch, seq_len, features+2)
+        x = self.pe(input, training)
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x, training)
         return x
@@ -236,9 +233,9 @@ class Decoder(tf.keras.layers.Layer):
         self.dropout_rate = config['dropout_rate']
         self.d_model = config['d_model']
 
-        self.t2v_list = [Time2Vector(1)]
+        self.pe_list = [PositionalEncoding(config, 1)]
         for i in range(config['output_seq_len']):
-            self.t2v_list.append(Time2Vector(i+1))
+            self.pe_list.append(PositionalEncoding(config, i+1))
     
         self.generated_sequence = list()
         self.last_known_data = None
@@ -255,23 +252,21 @@ class Decoder(tf.keras.layers.Layer):
         # inner loop: number of decoder layers
 
         # first outter loop
-        time_emb = self.t2v_list[0](self.last_known_data)  # (batch, seq_len, 2)
-        decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([self.last_known_data, time_emb])  # (batch, seq_len, features+2)
+        decoder_output_emb = self.pe_list[0](self.last_known_data, training)  # (batch, 1, d_model)
         
         for i in range(self.decoder_layers_num):
             decoder_output_emb = self.decoder_layers[i](decoder_output_emb, encoder_output, training)
-        out = tf.cast(self.linear_out(decoder_output_emb), dtype=tf.float64)
+        out = self.linear_out(decoder_output_emb)
         self.generated_sequence.append(out)
 
         # rest of outter loop
         for i in range(self.output_seq_len-1):
             new_input = tf.concat(self.generated_sequence, axis=1)
-            time_emb = self.t2v_list[i+1](new_input)
-            decoder_output_emb = tf.keras.layers.Concatenate(axis=-1)([new_input, time_emb])
+            decoder_output_emb = self.pe_list[i+1](new_input, training)
             
             for j in range(self.decoder_layers_num):
                 decoder_output_emb = self.decoder_layers[j](decoder_output_emb, encoder_output, training)
-            out = tf.cast(self.linear_out(decoder_output_emb), dtype=tf.float64)
+            out = self.linear_out(decoder_output_emb)
             self.generated_sequence.append(out[:, -1:, :])
         out = self.generated_sequence
         self.generated_sequence = []
@@ -296,9 +291,7 @@ class Transformer(tf.keras.models.Model):
 
     def call(self, input, training):
         enc_out = self.encoder(input, training)
-        print('enc done')
         dec_out = self.decoder(input, enc_out, training)
-        print('dec done')
         out = tf.concat(dec_out, axis=1)
         return out
     
