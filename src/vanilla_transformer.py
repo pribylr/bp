@@ -233,9 +233,10 @@ class Decoder(tf.keras.layers.Layer):
         self.dropout_rate = config['dropout_rate']
         self.d_model = config['d_model']
 
-        self.pe_list = [PositionalEncoding(config, 1)]
-        for i in range(config['output_seq_len']):
-            self.pe_list.append(PositionalEncoding(config, i+1))
+        # self.pe_list = [PositionalEncoding(config, 1)]
+        # for i in range(config['output_seq_len']):
+        #     self.pe_list.append(PositionalEncoding(config, i+1))
+        self.pe_list = [PositionalEncoding(config, i+1) for i in range(config['output_seq_len'])]
     
         self.generated_sequence = list()
         self.last_known_data = None
@@ -246,29 +247,21 @@ class Decoder(tf.keras.layers.Layer):
         self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
         #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for stationary data with mean 0
 
-    def call(self, transformer_input, encoder_output, training):  # decoder_output == (), encoder_output == (batch, seq_len, features+2)
-        self.last_known_data = transformer_input[:, -1:, :]
-        # outter loop: generating sequence of length self.output_seq_len
-        # inner loop: number of decoder layers
-
-        # first outter loop
-        decoder_output_emb = self.pe_list[0](self.last_known_data, training)  # (batch, 1, d_model)
-        
-        for i in range(self.decoder_layers_num):
-            decoder_output_emb = self.decoder_layers[i](decoder_output_emb, encoder_output, training)
-        out = self.linear_out(decoder_output_emb)
-        self.generated_sequence.append(out)
-
-        # rest of outter loop
-        for i in range(self.output_seq_len-1):
+    def call(self, transformer_input, encoder_output, training):
+        # decoder input in first step is last data point from input sequence
+        # with every step the decoder input longer by 1
+        self.generated_sequence.append(transformer_input[:, -1:, :])
+        for i in range(self.output_seq_len):
             new_input = tf.concat(self.generated_sequence, axis=1)
-            decoder_output_emb = self.pe_list[i+1](new_input, training)
-            
+            decoder_output_emb = self.pe_list[i](new_input, training)
             for j in range(self.decoder_layers_num):
                 decoder_output_emb = self.decoder_layers[j](decoder_output_emb, encoder_output, training)
             out = self.linear_out(decoder_output_emb)
             self.generated_sequence.append(out[:, -1:, :])
+        
         out = self.generated_sequence
+        out = tf.concat(out, axis=1)
+        out = out[:, 1:, :]
         self.generated_sequence = []
         return out
 
