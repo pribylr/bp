@@ -92,7 +92,36 @@ class Autocorrelation(tf.keras.layers.Layer):
         R = tf.reduce_sum(Vs_weighted, axis=1)  # (batch, heads, d_model/heads, seq_len)
         R = tf.reshape(R, [B, L, H*D])  # (batch, seq_len, d_model)
         return R
+
+    def time_delay_infer(self, W_topk, I_topk, V):
+        B, H, D, L = V.shape
+        V = tf.concat([V, V], axis=-1)  # (batch, heads, d_model/heads, 2seq_len)
+        index = tf.range(L)
+        index = tf.reshape(index, [1, 1, 1, L])
+        index = tf.tile(index, [B, H, D, 1])
+        R = tf.zeros_like(V[:, :, :, :L])
+
+        for i in range(self.k):
+            tmp = tf.expand_dims(tf.expand_dims(tf.expand_dims(I_topk[:, i], -1), -1), -1)
+            tmp = tf.tile(tmp, [B, H, D, L])
+            W_topk_exp = tf.expand_dims(tf.expand_dims(tf.expand_dims(W_topk[:, i], -1), -1), -1)
+            W_topk_exp = tf.tile(W_topk_exp, [B, H, D, L])
+            W_topk_exp = tf.cast(W_topk_exp, tf.float32)
+            tmp += index
+            indices_shape = tf.shape(tmp)
+            batch_indices = tf.range(0, B)
+            heads_indices = tf.range(0, H)
+            d_model_indices = tf.range(0, D)
+            B_tmp, H_tmp, D_tmp, L_tmp = tf.meshgrid(batch_indices, heads_indices, d_model_indices, tf.range(0, tf.shape(tmp)[-1]), indexing='ij')
+            gather_indices = tf.stack([B_tmp, H_tmp, D_tmp, tmp], axis=-1)
+            
+            result_tensor = tf.gather_nd(V, gather_indices)  # (batch, heads, d_model/heads, seq_len)
+            R += result_tensor * W_topk_exp
         
+        R = tf.transpose(R, perm=[0, 3, 1, 2])
+        R = tf.reshape(R, [B, L, H*D])  # (batch, seq_len, d_model)
+        return R
+    
     def call(self, input, training):
         Q, K, V = self.createQKV(input)  # (batch, heads, d_model/heads, seq_len)
         corr = self.fast_fourier_operations((Q, K))
@@ -102,8 +131,11 @@ class Autocorrelation(tf.keras.layers.Layer):
             res = self.time_delay_train(W_topk, I_topk, V)
             res = self.out(res)
             return res
+        else:
+            res = self.time_delay_infer(W_topk, I_topk, V)
+            res = self.out(res)
+            return res
             
-        return -1
 
 class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
