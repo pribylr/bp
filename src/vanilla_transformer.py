@@ -1,13 +1,14 @@
 import tensorflow as tf
 import numpy as np
+tf.keras.backend.set_floatx('float64')
 
 
 class FeedForward(tf.keras.layers.Layer):
     def __init__(self, config, d_out, **kwargs):
         super(FeedForward, self).__init__()
-        self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation=config['activation'])
+        self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation='relu')
         self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.fc2 = tf.keras.layers.Dense(d_out, activation=config['activation'])
+        self.fc2 = tf.keras.layers.Dense(d_out, activation='linear')
         self.dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
 
     def call(self, input, training):
@@ -60,6 +61,7 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
             seq_len = QK.shape[-1]
             mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
             mask = mask[tf.newaxis, tf.newaxis, :, :]
+            mask = tf.cast(mask, tf.float64)  # new
             QK += (mask * -1e19)
         QK = tf.nn.softmax(QK, axis=-1)  # (batch, heads, seq_len, seq_len)
         QKV = tf.matmul(QK, value)  # (batch, heads, seq_len, features+2 / heads)
@@ -81,47 +83,32 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.d_v = config['d_v']
         self.heads = config['multihead_attn_heads']
         self.masked_mha = masked_mha
+        self.d_model = config['d_model']
         self.dot_product = ScaledDotProductAttention(config)
         
-    def build(self, input_shape):
-        self.query = tf.keras.layers.Dense(
-            self.d_k, 
-            kernel_initializer='glorot_uniform', 
-            bias_initializer='glorot_uniform')
-        self.key = tf.keras.layers.Dense(
-            self.d_k,
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
-        self.value = tf.keras.layers.Dense(
-            self.d_v,
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
-        self.linear_out = tf.keras.layers.Dense(
-            input_shape[-1],  # features+2
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
+        self.query = tf.keras.layers.Dense(self.d_k, activation='linear')
+        self.key = tf.keras.layers.Dense(self.d_k, activation='linear')
+        self.value = tf.keras.layers.Dense(self.d_v, activation='linear')
+        self.out = tf.keras.layers.Dense(self.d_model, activation='linear')
         
     def call(self, query, key, value, training): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
         Q, K, V = self.createQKV(query, key, value)  # (batch, heads, seq_len, features+2 / heads)
         scaled_dot_attention = self.dot_product(Q, K, V, training, self.masked_mha)  # (batch, heads, seq_len, features+2 / heads)
         tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])  # (batch, seq_len, heads, features+2 / heads)
         concatenated = tf.reshape(tr_sda, (-1, tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # (batch, seq_len, features+2)
-        res = self.linear_out(concatenated)
+        res = self.out(concatenated)
         return res  # (batch, seq_len, features+2)
 
     def createQKV(self, query, key, value):  # (x, x, x) : x.shape == (batch, seq_len, features+2)
         q_list = [self.query(query) for _ in range(self.heads)]  # [(batch, seq_len, d_k), ...]
         k_list = [self.key(key) for _ in range(self.heads)]
         v_list = [self.value(key) for _ in range(self.heads)]
-        q_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in q_list]  # [(seq_len, batch, d_k), ...]
-        k_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in k_list]
-        v_tr_list = [tf.transpose(tensor, perm=[1, 0, 2]) for tensor in v_list]
-        Q_4d = tf.stack(q_tr_list, axis=0)  # (heads, seq_len, batch, d_k)
-        K_4d = tf.stack(k_tr_list, axis=0)
-        V_4d = tf.stack(v_tr_list, axis=0)
-        result_Q = tf.transpose(Q_4d, perm=[2, 0, 1, 3])  # (batch, heads, seq_len, d_k)
-        result_K = tf.transpose(K_4d, perm=[2, 0, 1, 3])
-        result_V = tf.transpose(V_4d, perm=[2, 0, 1, 3])
+        Q_4d = tf.stack(q_list, axis=0)  # (heads, seq_len, batch, d_k)
+        K_4d = tf.stack(k_list, axis=0)
+        V_4d = tf.stack(v_list, axis=0)
+        result_Q = tf.transpose(Q_4d, perm=[1, 0, 2, 3])  # (batch, heads, seq_len, d_k)
+        result_K = tf.transpose(K_4d, perm=[1, 0, 2, 3])
+        result_V = tf.transpose(V_4d, perm=[1, 0, 2, 3])
         return result_Q, result_K, result_V
         
     def get_config(self):
@@ -144,19 +131,21 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.dropout_rate = config['dropout_rate']
         self.multihead_attn = MultiHeadAttention(config, masked_mha=False)
         
-        self.attn_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.attn_normalize = tf.keras.layers.LayerNormalization()
+        self.dropout = tf.keras.layers.Dropout(config['dropout_rate'])
+        self.normalize1 = tf.keras.layers.LayerNormalization()
 
         self.feed_forward = FeedForward(config, config['d_model'])
-        self.ff_normalize = tf.keras.layers.LayerNormalization()
+        self.normalize2 = tf.keras.layers.LayerNormalization()
 
     def call(self, input, training):  # (batch, seq_len, features+2)
         x = self.multihead_attn(input, input, input, training)  # (batch, seq_len, features+2)
-        x = self.attn_dropout(x, training=training)
-        x = self.attn_normalize(x + input)  # (batch, seq_len, features+2)
+        x = self.dropout(x, training=training)
+        x += input
+        x = self.normalize1(x)  # (batch, seq_len, features+2)
 
         y = self.feed_forward(x)
-        y = self.ff_normalize(x + y)  # (batch, seq_len, features+2)
+        y += x
+        y = self.normalize2(y)  # (batch, seq_len, features+2)
         return y
 
     def get_config(self):
@@ -203,29 +192,35 @@ class DecoderLayer(tf.keras.layers.Layer):
         
         self.masked_multihead_attn = MultiHeadAttention(config, masked_mha=True)
         self.multihead_attn = MultiHeadAttention(config, masked_mha=False)
-        self.attn_dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.attn_normalize1 = tf.keras.layers.LayerNormalization()
+        self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
+        self.normalize1 = tf.keras.layers.LayerNormalization()
 
-        self.attn_dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.attn_normalize2 = tf.keras.layers.LayerNormalization()
+        self.dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
+        self.normalize2 = tf.keras.layers.LayerNormalization()
 
-        self.ff_dropout = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.ff_normalize = tf.keras.layers.LayerNormalization()
+        self.dropout3 = tf.keras.layers.Dropout(config['dropout_rate'])
+        self.normalize3 = tf.keras.layers.LayerNormalization()
         
         self.feed_forward = FeedForward(config, config['d_model'])
         
     def call(self, decoder_output, encoder_output, training):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
         # first sublayer --- masked multi head attention for decoder output
         x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output, training)  # (batch, seq_len, features+2)
-        x = self.attn_dropout1(x, training=training)
-        x = self.attn_normalize1(x + decoder_output)  # (batch, seq_len, features+2)
+        x = self.dropout1(x, training=training)
+        x += decoder_output
+        x = self.normalize1(x)  # (batch, seq_len, features+2)
+        
         # second sublayer --- multi head attention for encoder output (key, value) and decoder output (query)
         y = self.multihead_attn(x, encoder_output, encoder_output, training)  # q, k, v
-        y = self.attn_dropout2(y, training=training)
-        y = self.attn_normalize2(y + x)
+        y = self.dropout2(y, training=training)
+        y += x
+        y = self.normalize2(y)
+        
         # third sublayer --- feed forward
         z = self.feed_forward(y)
-        z = self.ff_normalize(z + y)  # (batch, seq_len, features+2)
+        z = self.dropout3(z)
+        z += y
+        z = self.normalize3(z)  # (batch, seq_len, features+2)
         return z
 
 
@@ -239,6 +234,7 @@ class Decoder(tf.keras.layers.Layer):
         self.d_ff = config['d_ff']
         self.d_out = config['d_out']
         self.dropout_rate = config['dropout_rate']
+        self.d_model = config['d_model']
 
         self.t2v_list = [Time2Vector(1)]
         for i in range(config['output_seq_len']):
@@ -250,10 +246,8 @@ class Decoder(tf.keras.layers.Layer):
         self.decoder_layers_num = config['decoder_layers']
         self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
 
-        self.linear_out = tf.keras.layers.Dense(
-            config['d_out'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
+        self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
+        #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for stationary data with mean 0
 
     def call(self, transformer_input, encoder_output, training):  # decoder_output == (), encoder_output == (batch, seq_len, features+2)
         self.last_known_data = transformer_input[:, -1:, :]
@@ -302,7 +296,9 @@ class Transformer(tf.keras.models.Model):
 
     def call(self, input, training):
         enc_out = self.encoder(input, training)
+        print('enc done')
         dec_out = self.decoder(input, enc_out, training)
+        print('dec done')
         out = tf.concat(dec_out, axis=1)
         return out
     
