@@ -3,32 +3,24 @@ import numpy as np
 tf.keras.backend.set_floatx('float64')
 
 
-class PositionalEncoding(tf.keras.layers.Layer):
-    def __init__(self, config, seq_len, **kwargs):
-        super(PositionalEncoding, self).__init__()
-        self.seq_len = seq_len
-        self.d_model = config['d_model']
-        self.linear = tf.keras.layers.Dense(config['d_model'], activation='linear')
-        self.dropout = tf.keras.layers.Dropout(0.1)
+def PositionalEncoding(input):
+    batch_size = tf.shape(input)[0].numpy()
+    seq_len = tf.shape(input)[1].numpy()
+    d_model = tf.shape(input)[2].numpy()
+    pe = np.zeros((seq_len, d_model))  # (input_seq_len, d_model)
         
-    def call(self, input, training):
-        x = self.linear(input)
-        pe = np.zeros((self.seq_len, self.d_model))  # (input_seq_len, d_model)
-        
-        position = np.arange(0, self.seq_len).reshape(-1, 1)  # (input_seq_len, 1)        
-        i2 = np.arange(0, self.d_model, 2)  # [0 2 ...]        
-        div_term = np.exp(i2 * np.log(10000.0) / self.d_model)  # (d_model / 2, ) ()
+    position = np.arange(0, seq_len).reshape(-1, 1)  # (input_seq_len, 1)        
+    i2 = np.arange(0, d_model, 2)  # [0 2 ...]        
+    div_term = np.exp(i2 * np.log(10000.0) / d_model)  # (d_model / 2, ) ()
 
-        pe[:, 0::2] = np.sin(position * div_term)
-        pe[:, 1::2] = np.cos(position * div_term)
+    pe[:, 0::2] = np.sin(position * div_term)
+    pe[:, 1::2] = np.cos(position * div_term)
         
-        #pe = tf.convert_to_tensor(pe, dtype=tf.float64)
-        pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
-        pe = tf.tile(pe, [tf.shape(input)[0], 1, 1])  # (batch, seq_len, d_model)
+    pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
+    pe = tf.tile(pe, [batch_size, 1, 1])  # (batch, seq_len, d_model)
 
-        x += pe
-        x = self.dropout(x, training=training)
-        return x
+    input += pe
+    return input
 
 
 class FeedForward(tf.keras.layers.Layer):
@@ -169,10 +161,10 @@ class Encoder(tf.keras.layers.Layer):
         self.dropout_rate = config['dropout_rate']
         self.encoder_layers_num = config['encoder_layers']
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
-        self.pe = PositionalEncoding(config, config['input_seq_len'])
+        self.embed = tf.keras.layers.Dense(config['d_model'], activation='linear')
             
     def call(self, input, training):
-        x = self.pe(input, training)
+        x = self.embed(input)
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x, training)
         return x
