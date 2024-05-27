@@ -48,7 +48,7 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
     def call(self, query, key, value, training, masked_mha=False):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
         QK = tf.matmul(query, key, transpose_b=True)  # (batch, heads, seq_len, seq_len)
         QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # (batch, heads, seq_len, seq_len)
-        if masked_mha and training:
+        if masked_mha:
             seq_len = QK.shape[-1]
             mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len), dtype=tf.float64), -1, 0)
             mask = mask[tf.newaxis, tf.newaxis, :, :]
