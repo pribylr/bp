@@ -16,9 +16,9 @@ class Series_decomp(tf.keras.layers.Layer):  # ?
 class FeedForward(tf.keras.layers.Layer):
     def __init__(self, config, d_out, **kwargs):
         super(FeedForward, self).__init__()
-        self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation=config['activation'])
+        self.fc1 = tf.keras.layers.Dense(config['d_ff'], activation='relu')
         self.dropout1 = tf.keras.layers.Dropout(config['dropout_rate'])
-        self.fc2 = tf.keras.layers.Dense(d_out, activation=config['activation'])
+        self.fc2 = tf.keras.layers.Dense(d_out, activation='linear')
         self.dropout2 = tf.keras.layers.Dropout(config['dropout_rate'])
 
     def call(self, input, training):
@@ -36,10 +36,10 @@ class Autocorrelation(tf.keras.layers.Layer):
         self.heads = config['ac_heads']
         self.c = config['c']
         self.input_seq_len = config['input_seq_len']
-        self.query = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
-        self.key = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
-        self.value = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation=config['activation'])
-        self.out = tf.keras.layers.Dense(config['d_model'], activation=config['activation'])
+        self.query = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation='linear')
+        self.key = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation='linear')
+        self.value = tf.keras.layers.Dense(config['d_model']/config['ac_heads'], activation='linear')
+        self.out = tf.keras.layers.Dense(config['d_model'], activation='linear')
         self.k = int(config['c']*np.log(config['input_seq_len']))
 
     def createQKV(self, input):
@@ -146,23 +146,15 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.feed_forward = FeedForward(config, config['d_model'])
     
     def call(self, input, training):  # (batch, seq_len, d_model)
-        #print('enc layer AC start')
         x = self.autocorrelation((input, input, input))  # (batch, seq_len, d_model)
-        #print('enc layer AC end')
         x += input
         
-        #print('enc layer series decomp 1 start')
         S1, _ = self.series_decomp1(x)
-        #print('enc layer series decomp 1 end')
 
-        #print('enc layer FF start')
         x = self.feed_forward(S1, training)
-        #print('enc layer FF end')
         x += S1
 
-        #print('enc layer series decomp 2 start')
         S2, _ = self.series_decomp2(x)
-        #print('enc layer series decomp 2 end')
         return S2  # (batch, seq_len, d_model)
 
 
@@ -171,10 +163,7 @@ class Encoder(tf.keras.layers.Layer):
         super(Encoder, self).__init__()
         self.encoder_layers_num = config['encoder_layers']
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
-        self.embed = tf.keras.layers.Dense(
-            config['d_model'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
+        self.embed = tf.keras.layers.Dense(config['d_model'])
 
     def call(self, input, training):
         x = self.embed(input)  # (batch, seq_len, d_model)
@@ -200,34 +189,21 @@ class DecoderLayer(tf.keras.layers.Layer):
         # [0] -- embed S
         # [1] -- T
         # [2] -- enc out
-        #print('decoder layer AC 1 start')
         x = self.autocorrelation1((input[0], input[0], input[0]))  # (batch, seq_len/2 + O, d_model)
-        #print('decoder layer AC 1 end')
         x += input[0]
-        #print('decoder layer series decomp 1 start')
         S1, T1 = self.series_decomp1(x)
-        #print('decoder layer series decomp 1 end')
-        #print('decoder layer AC 2 start')
+
         y = self.autocorrelation2((S1, input[2], input[2]))  # (batch, seq_len/2 + O, d_model)
-        #print('decoder layer AC 2 end')
         y += S1
-        #print('decoder layer series decomp 2 start')
         S2, T2 = self.series_decomp2(y)
-        #print('decoder layer series decomp 2 end')
         
-        #print('decoder layer FF start')
         z = self.feed_forward(S2, training)
-        #print('decoder layer FF end')
         z += S2
-        #print('decoder layer series decomp 3 start')
         S3, T3 = self.series_decomp3(z)
-        #print('decoder layer series decomp 3 start')
         T = input[1]
-        #print('decoder layer T mlp start')
         T += self.mlp1(T1, training)
         T += self.mlp2(T2, training)
         T += self.mlp3(T3, training)
-        #print('decoder layer T mlp end')
         return S3, T
 
 
@@ -236,10 +212,7 @@ class Decoder(tf.keras.layers.Layer):
         super(Decoder, self).__init__()
         self.decoder_layers_num = config['decoder_layers']
         self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
-        self.embed = tf.keras.layers.Dense(
-            config['d_model'],
-            kernel_initializer='glorot_uniform',
-            bias_initializer='glorot_uniform')
+        self.embed = tf.keras.layers.Dense(config['d_model'])
         self.mlp = FeedForward(config, config['d_out'])
     
     def call(self, input, training):  # X_des (batch, seq_len/2 + O, features), X_det (batch, seq_len/2 + O, features), enc_out (batch, seq_len, d_model)
