@@ -165,6 +165,7 @@ class Encoder(tf.keras.layers.Layer):
             
     def call(self, input, training):
         x = self.embed(input)
+        x = PositionalEncoding(x)
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x, training)
         return x
@@ -224,28 +225,32 @@ class Decoder(tf.keras.layers.Layer):
         self.d_out = config['d_out']
         self.dropout_rate = config['dropout_rate']
         self.d_model = config['d_model']
-
-        # self.pe_list = [PositionalEncoding(config, 1)]
-        # for i in range(config['output_seq_len']):
-        #     self.pe_list.append(PositionalEncoding(config, i+1))
-        self.pe_list = [PositionalEncoding(config, i+1) for i in range(config['output_seq_len'])]
-    
+        self.embed = tf.keras.layers.Dense(config['d_model'], activation='linear')
         self.generated_sequence = list()
         self.last_known_data = None
-
         self.decoder_layers_num = config['decoder_layers']
         self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
 
         self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
         #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for stationary data with mean 0
 
-    def call(self, transformer_input, encoder_output, training):
+    def call_train(self, encoder_output, target, training):
+        shifted_inputs = tf.concat([self.last_known_data, target], axis=1)
+        shifted_inputs = self.embed(shifted_inputs)
+        shifted_inputs = PositionalEncoding(shifted_inputs)
+        for i in range(self.decoder_layers_num):
+            shifted_inputs = self.decoder_layers[i](shifted_inputs, encoder_output, training)
+        out = self.linear_out(shifted_inputs)
+        return out[:, :-1, :]
+
+    def call_inference(self, encoder_output, training):
+        self.generated_sequence.append(self.last_known_data)
         # decoder input in first step is last data point from input sequence
         # with every step the decoder input longer by 1
-        self.generated_sequence.append(transformer_input[:, -1:, :])
         for i in range(self.output_seq_len):
             new_input = tf.concat(self.generated_sequence, axis=1)
-            decoder_output_emb = self.pe_list[i](new_input, training)
+            decoder_output_emb = self.embed(new_input)
+            decoder_output_emb = PositionalEncoding(decoder_output_emb)
             for j in range(self.decoder_layers_num):
                 decoder_output_emb = self.decoder_layers[j](decoder_output_emb, encoder_output, training)
             out = self.linear_out(decoder_output_emb)
@@ -256,6 +261,15 @@ class Decoder(tf.keras.layers.Layer):
         out = out[:, 1:, :]
         self.generated_sequence = []
         return out
+    
+    def call(self, last_data, encoder_output, target, training):
+        self.last_known_data = last_data
+        if training == True:
+            out = self.call_train(encoder_output, target, training)
+            return out
+        else:
+            out = self.call_inference(encoder_output, training)
+            return out
 
 
 class Transformer(tf.keras.models.Model):
@@ -273,10 +287,11 @@ class Transformer(tf.keras.models.Model):
         self.dropout_rate = config['dropout_rate']
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
+        self.batch_size = config['batch_size']
 
-    def call(self, input, training):
+    def call(self, input, target, training):
         enc_out = self.encoder(input, training)
-        dec_out = self.decoder(input, enc_out, training)
+        dec_out = self.decoder(target[:, -1:, :] if training else tf.zeros((tf.shape(input)[0], 1, self.d_out)), enc_out, target, training)
         out = tf.concat(dec_out, axis=1)
         return out
     
