@@ -18,19 +18,19 @@ def split_data(Xdata, ydata, train_pct, val_pct):
             Xdata[val_test_split:], ydata[val_test_split:]
 
 
-def diff_features(data: pd.DataFrame, period: int=1):
-    for col in data.columns:
+def diff_features(data: pd.DataFrame, columns: list, period: int=1):
+    for col in columns:
         data[col] = data[col].diff(period)
-    data = data[1:]  # first row NaN
+    data = data[period:]  # first period rows NaN
     return data
 
 
-def standardize_data(data: pd.DataFrame, train_pct: float):
-    # use information only from training part of the dataset
+def normalize_custom(data: pd.DataFrame, train_pct: float, columns: list):
     train_data_len = int(train_pct*data.shape[0])
-    for col in data.columns:
-        mean = np.mean(data[col][:train_data_len])
-        std = np.std(data[col][:train_data_len])
-        data[col] = (data[col]-mean)/std
-    return data
-    
+    params = {}
+    for col in columns:
+        minimum = min(data[col][:train_data_len])
+        maximum = max(data[col][:train_data_len])
+        data[col] =(data[col] - minimum)/(maximum - minimum)
+        params[col] = (minimum, maximum)
+    return data, params
