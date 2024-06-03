@@ -25,13 +25,13 @@ class Visualizer():
         ax4.plot(predictions[3][0, :, target_idx], c='magenta', linestyle=':')
         ax4.plot(real_data[idx3, :, target_idx], c='black')
 
-    """
-    display four line plots
-    each plot has vertical line in middle
-    left of the line - input sequence (actual price of an asset)
-    right of the line - 1) real output sequence that follows the input and 2) predicted output sequence
-    """
     def plot_real_predicted_sequences(self, col: str, real_candles: list, pred_candles: list, seq_len: int):
+        """
+        display four line plots
+        each plot has vertical line in middle
+        left of the line - input sequence (actual price of an asset)
+        right of the line - 1) real output sequence that follows the input and 2) predicted output sequence
+        """
         fig = plt.figure(figsize=(14,7))
         ax1 = fig.add_subplot(221)
         ax2 = fig.add_subplot(222)
@@ -86,13 +86,13 @@ class Visualizer():
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
         k = 16
-        ax1.hist(real_change_pct, bins=k, edgecolor='black', density=True);
-        ax2.hist(pred_change_pct, bins=k, edgecolor='black', density=True);
+        counts1, bins1, patches1 = ax1.hist(real_change_pct, bins=k, edgecolor='black', density=True);
+        counts2, bins2, patches2 = ax2.hist(pred_change_pct, bins=k, edgecolor='black', density=True);
         
         ax1.set_xlim(min(real_change_pct + pred_change_pct), max(real_change_pct + pred_change_pct));
         ax2.set_xlim(min(real_change_pct + pred_change_pct), max(real_change_pct + pred_change_pct));
-        ax1.set_ylim(0,3.8)
-        ax2.set_ylim(0,3.8)
+        ax1.set_ylim(0, max(counts1 + counts2) + 0.05*max(counts1 + counts2))
+        ax2.set_ylim(0, max(counts1 + counts2) + 0.05*max(counts1 + counts2))
         ax1.set_title('Real percentage price movements');
         ax2.set_title('Predicted percentage price movements');
 
