@@ -6,20 +6,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 class DataProcessor():
     def __init__(self):
         pass
-        
-    def create_Xy_data(self, data_for_X: pd.DataFrame, data_for_y: pd.DataFrame, input_seq_len: int, output_seq_len: int):
-        Xdata, ydata = [], []
-        for i in range(input_seq_len, len(data_for_X)-(output_seq_len-1)):
-            Xdata.append(data_for_X.iloc[i-input_seq_len:i])
-            ydata.append(data_for_y.iloc[i:i+output_seq_len])
-        return np.array(Xdata), np.array(ydata)
-    
-    def split_data(self, Xdata: np.array, ydata: np.array, train_pct: float, val_pct: float):
-        train_val_split = int(train_pct*(Xdata.shape[0]))
-        val_test_split = int((train_pct+val_pct)*(Xdata.shape[0]))
-        return Xdata[:train_val_split], ydata[:train_val_split], \
-                Xdata[train_val_split:val_test_split], ydata[train_val_split:val_test_split], \
-                Xdata[val_test_split:], ydata[val_test_split:]
     
     def diff_features(self, data: pd.DataFrame, columns: list, period: int=1):
         for col in columns:
@@ -81,5 +67,18 @@ class DataProcessor():
             price_movement_at_that_time_pct = self.calculate_value_movement_pct(close_value_at_that_time, price_movement_at_that_time)
             result.append(price_movement_at_that_time_pct)
         return result
-    
+
+    def discard_little_price_movements(self, pred_classes, real_price_movement_pct, pred_price_movement_pct):
+        """
+        pred_classes contain -1, 0, 1.
+        method deletes data for which zero is predicted (from pred_classes)
+        and corresponding data from all other lists
+        
+        returns lists containing data for which significant rise/drop in price is predicted
+        """
+        pred_classes = [val2 for val2 in pred_classes if val2 != 0]
+        real_price_movement_pct = [val1 for val1, val2 in zip(real_price_movement_pct, pred_classes) if val2 != 0]
+        pred_price_movement_pct = [val1 for val1, val2 in zip(pred_price_movement_pct, pred_classes) if val2 != 0]
+        return pred_classes, real_price_movement_pct, pred_price_movement_pct
+
         
