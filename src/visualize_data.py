@@ -69,13 +69,13 @@ class Visualizer():
         ax1.pie([real_price_move.count(1), real_price_move.count(-1)],
             labels=['price go up', 'price go down'],
             autopct=absolute_value_real,
-            colors=['#00DEFF', '#818181'],
+            colors=['#00C98D', '#E9413A'],
             startangle=95,
             labeldistance=1.00);
         ax2.pie([pred_price_move.count(1), pred_price_move.count(-1)],
             labels=['price go up', 'price go down'],
             autopct=absolute_value_pred,
-            colors=['#00DEFF', '#818181'],
+            colors=['#00C98D', '#E9413A'],
             startangle=95,
             labeldistance=1.00);
         ax1.set_title('How many real price movements');
@@ -111,13 +111,13 @@ class Visualizer():
         ax1.pie([real_price_move.count(1), real_price_move.count(-1), real_price_move.count(0)],
                labels=['price go up', 'price go down', 'nothing'],
                autopct=absolute_value_real,
-               colors=['#00DEFF', '#818181', '#D0D0D0'],
+               colors=['#00C98D', '#E9413A', '#D0D0D0'],
                startangle=90,
                labeldistance=1.00);
         ax2.pie([pred_price_move.count(1), pred_price_move.count(-1), pred_price_move.count(0)],
                labels=['price go up', 'price go down', 'nothing'],
                autopct=absolute_value_pred,
-               colors=['#00DEFF', '#818181', '#D0D0D0'],
+               colors=['#00C98D', '#E9413A', '#D0D0D0'],
                startangle=90,
                labeldistance=1.00);
         ax1.set_title('How many real price movements');
@@ -128,3 +128,53 @@ class Visualizer():
             "Metric": ["Accuracy", "Precision", "Recall", "F1 Score"],
             "Value": [accuracy, precision, recall, f1]
         })
+
+    def plot_metrics_ternary(self, thresholds: list, accuracies: list, precisions: list, recalls: list, f1s: list):
+        fig = plt.figure(figsize=(12,6))
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        
+        ax1.plot(thresholds, accuracies, label='accuracy', color='black')
+        ax2.plot(thresholds, precisions, label='precision', c='#A315E6')
+        ax2.plot(thresholds, recalls, label='recall', c='#FF9B00')
+        ax2.plot(thresholds, f1s, label='f1 score', c='#66DA10')
+        ax1.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
+        ax2.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
+        ax1.set_xlim(0, 1)
+        ax2.set_xlim(0, 1)
+        ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        ax1.set_title('Accuracy for different price movement thresholds')
+        ax2.set_title('Precision, recall, f1 score for different price movement thresholds')
+        ax1.set_xlabel('Price move percentage threshold')
+        ax2.set_xlabel('Price move percentage threshold')
+        ax1.set_ylabel('Accuracy value')
+        ax2.set_ylabel('Metrics values')
+        ax1.legend();
+        ax2.legend();
+
+    def plot_metrics_binary(self, thresholds: list, accuracies: list, precisions: list, recalls: list, f1s: list, original_accuracy: float, original_precision: float, original_recall: float, original_f1: float):
+        fig = plt.figure(figsize=(12,6))
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+        
+        ax1.plot(thresholds, accuracies, label='accuracy', color='black')
+        ax2.plot(thresholds, precisions, label='precision', alpha=0.8, c='#A315E6')
+        ax2.plot(thresholds, recalls, label='recall', alpha=0.8, c='#FF9B00')
+        ax2.plot(thresholds, f1s, label='f1 score', alpha=0.8, c='#66DA10')
+        ax1.axhline(y=original_accuracy, label=f'accuracy with no threshold considered ({original_accuracy:.2f})', c='blue', linestyle='--')
+        ax2.axhline(y=original_precision, label=f'precision with no threshold considered ({original_precision:.2f})', c='#A315E6', linestyle='--', alpha=0.7)
+        ax2.axhline(y=original_recall, label=f'recall with no threshold considered ({original_recall:.2f})', c='#FF9B00', linestyle='--', alpha=0.7)
+        ax2.axhline(y=original_f1, label=f'f1 score with no threshold considered ({original_f1:.2f})', c='#66DA10', linestyle='--', alpha=0.7)
+        ax1.set_title('Accuracy for different price movement thresholds')
+        ax2.set_title('Precision, recall, f1 score for different price movement thresholds')
+        ax1.set_xlabel('Price move percentage threshold')
+        ax2.set_xlabel('Price move percentage threshold')
+        ax1.set_ylabel('Accuracy value')
+        ax2.set_ylabel('Metrics values')
+        ax1.set_xlim(0, 1)
+        ax2.set_xlim(0, 1)
+        ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        ax1.legend();
+        ax2.legend(fontsize=7);
