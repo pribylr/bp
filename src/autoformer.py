@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+tf.keras.backend.set_floatx('float64')
 
 class Series_decomp(tf.keras.layers.Layer):  # ?
     def __init__(self, config, **kwargs):
@@ -87,7 +88,7 @@ class Autocorrelation(tf.keras.layers.Layer):
             shift = tf.keras.backend.eval(I_topk[:, i]).item()
             rolled.append(tf.roll(V, shift=-shift, axis=-1))
         Vs_rolled = tf.stack(rolled, axis=1)  # (batch, k, heads, d_model/heads, seq_len)
-        W_topk = tf.cast(tf.reshape(W_topk, [1, -1, 1, 1, 1]), tf.float32)  # (1, k, 1, 1, 1)
+        W_topk = tf.cast(tf.reshape(W_topk, [1, -1, 1, 1, 1]), tf.float64)  # (1, k, 1, 1, 1)
         Vs_weighted = Vs_rolled*W_topk  # (batch, k, heads, d_model/heads, seq_len)
         R = tf.reduce_sum(Vs_weighted, axis=1)  # (batch, heads, d_model/heads, seq_len)
         R = tf.reshape(R, [B, L, H*D])  # (batch, seq_len, d_model)
@@ -106,7 +107,7 @@ class Autocorrelation(tf.keras.layers.Layer):
             tmp = tf.tile(tmp, [B, H, D, L])
             W_topk_exp = tf.expand_dims(tf.expand_dims(tf.expand_dims(W_topk[:, i], -1), -1), -1)
             W_topk_exp = tf.tile(W_topk_exp, [B, H, D, L])
-            W_topk_exp = tf.cast(W_topk_exp, tf.float32)
+            W_topk_exp = tf.cast(W_topk_exp, tf.float64)
             tmp += index
             indices_shape = tf.shape(tmp)
             batch_indices = tf.range(0, B)
@@ -145,17 +146,16 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.series_decomp2 = Series_decomp(config)
         self.feed_forward = FeedForward(config, config['d_model'])
     
-    def call(self, input, training):  # (batch, seq_len, d_model)
-        x = self.autocorrelation((input, input, input))  # (batch, seq_len, d_model)
+    def call(self, input, training):  # [batch, seq_len, d_model]
+        x = self.autocorrelation((input, input, input))  # [batch, seq_len, d_model]
         x += input
-        
-        S1, _ = self.series_decomp1(x)
-
-        x = self.feed_forward(S1, training)
+                
+        S1, _ = self.series_decomp1(x)  # [batch, seq_len, d_model]
+        x = self.feed_forward(S1, training)  # [batch, seq_len, d_model]
         x += S1
 
         S2, _ = self.series_decomp2(x)
-        return S2  # (batch, seq_len, d_model)
+        return S2  # [batch, seq_len, d_model]
 
 
 class Encoder(tf.keras.layers.Layer):
@@ -165,10 +165,10 @@ class Encoder(tf.keras.layers.Layer):
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
         self.embed = tf.keras.layers.Dense(config['d_model'])
 
-    def call(self, input, training):
-        x = self.embed(input)  # (batch, seq_len, d_model)
+    def call(self, input, training):  # [batch_size, input_seq_lne, features]
+        x = self.embed(input)  # [batch, seq_len, d_model]
         for i in range(self.encoder_layers_num):
-            x = self.encoder_layers[i](x, training)  # (batch, seq_len, d_model)
+            x = self.encoder_layers[i](x, training)  # [batch, seq_len, d_model]
         return x
 
 
@@ -181,30 +181,34 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.series_decomp2 = Series_decomp(config)
         self.series_decomp3 = Series_decomp(config)
         self.feed_forward = FeedForward(config, config['d_model'])
-        self.mlp1 = FeedForward(config, config['d_out'])
-        self.mlp2 = FeedForward(config, config['d_out'])
-        self.mlp3 = FeedForward(config, config['d_out'])
+        self.mlp1 = FeedForward(config, config['d_model'])
+        self.mlp2 = FeedForward(config, config['d_model'])
+        self.mlp3 = FeedForward(config, config['d_model'])
 
     def call(self, input, training):
-        # [0] -- embed S
-        # [1] -- T
-        # [2] -- enc out
-        x = self.autocorrelation1((input[0], input[0], input[0]))  # (batch, seq_len/2 + O, d_model)
+        # [0] -- embedded S  [batch, seq_len/2 + O, d_model]
+        # [1] -- T           [batch, seq_len/2 + O, features]
+        # [2] -- enc out     [batch, seq_len, d_model]
+        x = self.autocorrelation1((input[0], input[0], input[0]))  # [batch, seq_len/2 + O, d_model]
         x += input[0]
-        S1, T1 = self.series_decomp1(x)
+        S1, T1 = self.series_decomp1(x)  # 2x [batch, seq_len/2 + O, d_model]
 
-        y = self.autocorrelation2((S1, input[2], input[2]))  # (batch, seq_len/2 + O, d_model)
+        y = self.autocorrelation2((S1, input[2], input[2]))  # [batch, seq_len/2 + O, d_model]
         y += S1
-        S2, T2 = self.series_decomp2(y)
+        S2, T2 = self.series_decomp2(y)  # 2x [batch, seq_len/2 + O, d_model]
         
-        z = self.feed_forward(S2, training)
+        z = self.feed_forward(S2, training)  # [batch, seq_len/2 + O, d_model]
         z += S2
-        S3, T3 = self.series_decomp3(z)
+        S3, T3 = self.series_decomp3(z)  # 2x [batch, seq_len/2 + O, d_model]
+
         T = input[1]
-        T += self.mlp1(T1, training)
+        
+        tmp = self.mlp1(T1, training) 
+        T += tmp
+        #T += self.mlp1(T1, training)
         T += self.mlp2(T2, training)
         T += self.mlp3(T3, training)
-        return S3, T
+        return S3, T  # [batch, seq_len/2 + O, d_model], [batch, seq_len/2 + O, d_data]
 
 
 class Decoder(tf.keras.layers.Layer):
@@ -212,17 +216,21 @@ class Decoder(tf.keras.layers.Layer):
         super(Decoder, self).__init__()
         self.decoder_layers_num = config['decoder_layers']
         self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
-        self.embed = tf.keras.layers.Dense(config['d_model'])
+        self.embed_S = tf.keras.layers.Dense(config['d_model'])
+        self.embed_T = tf.keras.layers.Dense(config['d_model'])
         self.mlp = FeedForward(config, config['d_out'])
+        self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
+        #self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear', bias_initializer='zeros')
     
     def call(self, input, training):  # X_des (batch, seq_len/2 + O, features), X_det (batch, seq_len/2 + O, features), enc_out (batch, seq_len, d_model)
-        S = self.embed(input[0])  # (batch, seq_len/2 + O, d_model)
-        T = input[1]
+        S = self.embed_S(input[0])  # [batch, seq_len/2 + O, d_model]
+        T = self.embed_T(input[1])  # [batch, seq_len/2 + O, features]
         for i in range(self.decoder_layers_num):
-            S, T = self.decoder_layers[i]((S, T, input[2]), training)
+            S, T = self.decoder_layers[i]((S, T, input[2]), training)  # 2x [batch, seq_len/2 + O, d_model]
         
         S = self.mlp(S, training)
-        return S+T
+        out = self.linear_out(S+T)
+        return out
 
 
 class Autoformer(tf.keras.models.Model):
@@ -239,13 +247,13 @@ class Autoformer(tf.keras.models.Model):
         X_ens, X_ent = self.series_decomp(input[:, (input.shape[1])//2:, :])  # (batch, seq_len/2, features)
         mean = tf.reduce_mean(input, axis=1, keepdims=True)
         mean = tf.tile(mean, [1, self.O, 1])  # (batch, output_seq_len, features)
-        zeros = tf.zeros([tf.shape(input)[0], self.O, input.shape[2]], dtype=tf.float32)  # (batch, output_seq_len, features)
+        zeros = tf.zeros([tf.shape(input)[0], self.O, input.shape[2]], dtype=tf.float64)  # (batch, output_seq_len, features)
         
         X_det = tf.concat([X_ent, mean], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
         X_des = tf.concat([X_ens, zeros], axis=1)  # (batch, seq_len/2 +output_seq_len, features)
         return X_des, X_det
     
-    def call(self, input, training):
+    def call(self, input, training):  # [batch_size, input_seq_lne, features]
         X_des, X_det = self.prepare_input(input)
         enc_out = self.encoder(input, training)
         dec_out = self.decoder((X_des, X_det, enc_out), training)
