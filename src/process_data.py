@@ -23,14 +23,18 @@ class DataProcessor():
             params[col] = (minimum, maximum)
         return data, params
 
-    def summed_price_movement(self, arr: np.array):  # [batch_size, seq_len]
+    def sum_along_seq_dim(self, arr: np.array):  # [batch_size, seq_len]
         return np.sum(arr, axis=1)
 
-    def create_binary_classification_classes(self, values: list):
-        return [1 if value >= 0 else -1 for value in values]
+    def create_binary_classification_classes(self, values: list, threshold: float):
+        return [1 if value >= threshold else -1 for value in values]
 
-    def create_ternary_classification_classes(self, values: list, threshold: float):
-        return [1 if value > threshold else 0 if -threshold <= value <= threshold else -1
+    def create_ternary_classification_classes(self, values: list, threshold: float, base_value: float):
+        """
+        -inf ------ base_value-threshold ------ base_value+threshold ------ +inf
+            <class -1>                  <class 0>                    <class +1>
+        """
+        return [1 if value > base_value+threshold else 0 if base_value-threshold <= value <= base_value+threshold else -1
         for value in values]
 
     def create_metrics_from_classes_binary(self, real_classes: list, pred_classes: list):
@@ -79,6 +83,6 @@ class DataProcessor():
         pred_classes = [val2 for val2 in pred_classes if val2 != 0]
         real_price_movement_pct = [val1 for val1, val2 in zip(real_price_movement_pct, pred_classes) if val2 != 0]
         pred_price_movement_pct = [val1 for val1, val2 in zip(pred_price_movement_pct, pred_classes) if val2 != 0]
-        return pred_classes, real_price_movement_pct, pred_price_movement_pct
+        return real_price_movement_pct, pred_price_movement_pct
 
         
