@@ -14,8 +14,12 @@ def PositionalEncoding(input):
     div_term = np.exp(i2 * np.log(10000.0) / d_model)  # (d_model / 2, ) ()
 
     pe[:, 0::2] = np.sin(position * div_term)
-    pe[:, 1::2] = np.cos(position * div_term)
-        
+    if d_model % 2 == 0:
+        pe[:, 1::2] = np.cos(position * div_term)
+    else:
+        pe[:, 1::2] = np.cos(position * div_term[:-1])
+        pe[:, -1] = np.sin(position[:, 0] * div_term[-1])
+
     pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
     pe = tf.tile(pe, [batch_size, 1, 1])  # (batch, seq_len, d_model)
 
