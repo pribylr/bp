@@ -7,19 +7,19 @@ def PositionalEncoding(input):
     batch_size = tf.shape(input)[0].numpy()
     seq_len = tf.shape(input)[1].numpy()
     d_model = tf.shape(input)[2].numpy()
-    pe = np.zeros((seq_len, d_model))  # (input_seq_len, d_model)
+    pe = np.zeros((seq_len, d_model))  # [input_seq_len, d_model]
         
-    position = np.arange(0, seq_len).reshape(-1, 1)  # (input_seq_len, 1)        
-    i2 = np.arange(0, d_model, 2)  # [0 2 ...]        
-    div_term = np.exp(i2 * np.log(10000.0) / d_model)  # (d_model / 2, ) ()
-
-    pe[:, 0::2] = np.sin(position * div_term)
+    position = np.arange(0, seq_len).reshape(-1, 1)  # [input_seq_len, 1]
+    i2 = np.arange(0, d_model, 2)  # (0 2 4 ...)
+    div_term = np.exp(i2 * np.log(10000.0) / d_model)  # [d_model/2, ]
+    
+    pe[:, 0::2] = np.sin(position / div_term)
     if d_model % 2 == 0:
-        pe[:, 1::2] = np.cos(position * div_term)
+        pe[:, 1::2] = np.cos(position / div_term)
     else:
-        pe[:, 1::2] = np.cos(position * div_term[:-1])
-        pe[:, -1] = np.sin(position[:, 0] * div_term[-1])
-
+        pe[:, 1::2] = np.cos(position / div_term[:-1])
+        pe[:, -1] = np.sin(position[:, 0] / div_term[-1])
+    
     pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
     pe = tf.tile(pe, [batch_size, 1, 1])  # (batch, seq_len, d_model)
 
@@ -170,6 +170,7 @@ class Encoder(tf.keras.layers.Layer):
     def call(self, input, training):
         x = self.embed(input)
         x = PositionalEncoding(x)
+        return x
         for i in range(self.encoder_layers_num):
             x = self.encoder_layers[i](x, training)
         return x
