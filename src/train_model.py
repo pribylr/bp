@@ -35,7 +35,6 @@ class ModelTrainer():
         return model
 
     def train_model_transformer(self, Xtrain, ytrain, Xval, yval, model_path, epochs, model, lr, config, Xtest):
-        print(type(Xtrain), type(ytrain), type(Xval), type(yval), type(model_path), type(epochs), type(model), type(lr), type(config), type(Xtest))
         train_dataset = tf.data.Dataset.from_tensor_slices((Xtrain, ytrain)).batch(config['batch_size'])
         val_dataset = tf.data.Dataset.from_tensor_slices((Xval, yval)).batch(config['batch_size'])
         
