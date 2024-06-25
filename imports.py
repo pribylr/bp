@@ -13,4 +13,5 @@ import ta
 from scipy.signal import butter, filtfilt
 import talib
 from talib import abstract
+import random
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
