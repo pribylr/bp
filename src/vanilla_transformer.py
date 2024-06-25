@@ -20,8 +20,8 @@ def PositionalEncoding(input):
         pe[:, 1::2] = np.cos(position / div_term[:-1])
         pe[:, -1] = np.sin(position[:, 0] / div_term[-1])
     
-    pe = pe[tf.newaxis, ...]  # (1, input_seq_len, d_model) 
-    pe = tf.tile(pe, [batch_size, 1, 1])  # (batch, seq_len, d_model)
+    pe = pe[tf.newaxis, ...]  # [1, input_seq_len, d_model]
+    pe = tf.tile(pe, [batch_size, 1, 1])  # [batch, seq_len, d_model]
 
     input += pe
     return input
@@ -49,16 +49,16 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         self.d_k = config['d_k']
         self.d_v = config['d_v']
     
-    def call(self, query, key, value, training, masked_mha=False):  # (Q, K, V) : (batch, heads, seq_len, features+2 / heads)
-        QK = tf.matmul(query, key, transpose_b=True)  # (batch, heads, seq_len, seq_len)
-        QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # (batch, heads, seq_len, seq_len)
+    def call(self, query, key, value, training, masked_mha=False):  # 3x [batch, heads, seq_len, d_model / heads]
+        QK = tf.matmul(query, key, transpose_b=True)  # [batch, heads, seq_len, seq_len]
+        QK = tf.map_fn(lambda x: x/np.sqrt(self.d_k), QK)  # [batch, heads, seq_len, seq_len]
         if masked_mha:
             seq_len = QK.shape[-1]
             mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len), dtype=tf.float64), -1, 0)
             mask = mask[tf.newaxis, tf.newaxis, :, :]
             QK += (mask * -1e19)
-        QK = tf.nn.softmax(QK, axis=-1)  # (batch, heads, seq_len, seq_len)
-        QKV = tf.matmul(QK, value)  # (batch, heads, seq_len, features+2 / heads)
+        QK = tf.nn.softmax(QK, axis=-1)  # [batch, heads, seq_len, seq_len]
+        QKV = tf.matmul(QK, value)  # [batch, heads, seq_len, d_model / heads]
         return QKV
         
     def get_config(self):
@@ -85,22 +85,22 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.value = tf.keras.layers.Dense(self.d_v, activation='linear')
         self.out = tf.keras.layers.Dense(self.d_model, activation='linear')
         
-    def call(self, query, key, value, training): # (Q, K, V) : x.shape == (batch, seq_len, features+2)
-        Q, K, V = self.createQKV(query, key, value)  # (batch, heads, seq_len, features+2 / heads)
-        scaled_dot_attention = self.dot_product(Q, K, V, training, self.masked_mha)  # (batch, heads, seq_len, features+2 / heads)
-        tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])  # (batch, seq_len, heads, features+2 / heads)
-        concatenated = tf.reshape(tr_sda, (-1, tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # (batch, seq_len, features+2)
+    def call(self, query, key, value, training): # (Q, K, V) : 3x [batch, seq_len, d_model]
+        Q, K, V = self.createQKV(query, key, value)  # [batch, heads, seq_len, d_model / heads]
+        scaled_dot_attention = self.dot_product(Q, K, V, training, self.masked_mha)  # [batch, heads, seq_len, d_model / heads]
+        tr_sda = tf.transpose(scaled_dot_attention, perm=[0, 2, 1, 3])  # [batch, seq_len, heads, d_model / heads]
+        concatenated = tf.reshape(tr_sda, (-1, tr_sda.shape[1], tr_sda.shape[2] * tr_sda.shape[3]))  # [batch, seq_len, d_model]
         res = self.out(concatenated)
-        return res  # (batch, seq_len, features+2)
+        return res  # [batch, seq_len, d_model]
 
-    def createQKV(self, query, key, value):  # (x, x, x) : x.shape == (batch, seq_len, features+2)
+    def createQKV(self, query, key, value):  # 3x [batch, seq_len, d_model]
         q_list = [self.query(query) for _ in range(self.heads)]  # [(batch, seq_len, d_k), ...]
         k_list = [self.key(key) for _ in range(self.heads)]
         v_list = [self.value(key) for _ in range(self.heads)]
-        Q_4d = tf.stack(q_list, axis=0)  # (heads, seq_len, batch, d_k)
+        Q_4d = tf.stack(q_list, axis=0)  # [heads, seq_len, batch, d_k]
         K_4d = tf.stack(k_list, axis=0)
         V_4d = tf.stack(v_list, axis=0)
-        result_Q = tf.transpose(Q_4d, perm=[1, 0, 2, 3])  # (batch, heads, seq_len, d_k)
+        result_Q = tf.transpose(Q_4d, perm=[1, 0, 2, 3])  # [batch, heads, seq_len, d_k]
         result_K = tf.transpose(K_4d, perm=[1, 0, 2, 3])
         result_V = tf.transpose(V_4d, perm=[1, 0, 2, 3])
         return result_Q, result_K, result_V
@@ -131,15 +131,15 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.feed_forward = FeedForward(config, config['d_model'])
         self.normalize2 = tf.keras.layers.LayerNormalization()
 
-    def call(self, input, training):  # (batch, seq_len, features+2)
-        x = self.multihead_attn(input, input, input, training)  # (batch, seq_len, features+2)
+    def call(self, input, training):  # [batch, seq_len, d_model]
+        x = self.multihead_attn(input, input, input, training)  # [batch, seq_len, d_model]
         x = self.dropout(x, training=training)
         x += input
-        x = self.normalize1(x)  # (batch, seq_len, features+2)
-
+        x = self.normalize1(x)  # [batch, seq_len, d_model]
+        
         y = self.feed_forward(x)
         y += x
-        y = self.normalize2(y)  # (batch, seq_len, features+2)
+        y = self.normalize2(y)  # [batch, seq_len, d_model]
         return y
 
     def get_config(self):
@@ -167,12 +167,11 @@ class Encoder(tf.keras.layers.Layer):
         self.encoder_layers = [EncoderLayer(config) for _ in range(config['encoder_layers'])]
         self.embed = tf.keras.layers.Dense(config['d_model'], activation='linear')
             
-    def call(self, input, training):
-        x = self.embed(input)
-        x = PositionalEncoding(x)
-        return x
+    def call(self, input, training):  # [batch, seq_len, features]
+        x = self.embed(input)  # [batch, seq_len, d_model]
+        x = PositionalEncoding(x)  # [batch, seq_len, d_model]
         for i in range(self.encoder_layers_num):
-            x = self.encoder_layers[i](x, training)
+            x = self.encoder_layers[i](x, training)  # [batch, seq_len, d_model]
         return x
 
 
@@ -198,24 +197,24 @@ class DecoderLayer(tf.keras.layers.Layer):
         
         self.feed_forward = FeedForward(config, config['d_model'])
         
-    def call(self, decoder_output, encoder_output, training):  # (batch, seq_len, features+2), (batch, seq_len, features+2)
+    def call(self, decoder_output, encoder_output, training):  # [batch, current_seq_len, d_model), [batch, seq_len, d_model]
         # first sublayer --- masked multi head attention for decoder output
-        x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output, training)  # (batch, seq_len, features+2)
+        x = self.masked_multihead_attn(decoder_output, decoder_output, decoder_output, training)  # [batch, current_seq_len, d_model]
         x = self.dropout1(x, training=training)
         x += decoder_output
-        x = self.normalize1(x)  # (batch, seq_len, features+2)
+        x = self.normalize1(x)  # [batch, current_seq_len, d_model]
         
         # second sublayer --- multi head attention for encoder output (key, value) and decoder output (query)
-        y = self.multihead_attn(x, encoder_output, encoder_output, training)  # q, k, v
+        y = self.multihead_attn(x, encoder_output, encoder_output, training)  # [batch, current_seq_len, d_model]
         y = self.dropout2(y, training=training)
         y += x
-        y = self.normalize2(y)
+        y = self.normalize2(y)  # [batch, current_seq_len, d_model]
         
         # third sublayer --- feed forward
-        z = self.feed_forward(y)
+        z = self.feed_forward(y)  # [batch, current_seq_len, d_model]
         z = self.dropout3(z)
         z += y
-        z = self.normalize3(z)  # (batch, seq_len, features+2)
+        z = self.normalize3(z)  # [batch, current_seq_len, d_model]
         return z
 
 
@@ -237,7 +236,7 @@ class Decoder(tf.keras.layers.Layer):
         self.decoder_layers = [DecoderLayer(config) for _ in range(config['decoder_layers'])]
 
         self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
-        #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for stationary data with mean 0
+        #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for (stationary) data with mean 0
 
     def call_train(self, encoder_output, target, training):
         shifted_inputs = tf.concat([self.last_known_data, target], axis=1)
