@@ -12,7 +12,7 @@ class DataLoader():
         """
         forex data eurusd --- one pip == 0.0001 usd
         """
-        data = pd.read_csv('data/15min1h4h/EURUSD15.csv', sep='\t')
+        data = pd.read_csv('data/EURUSD15.csv', sep='\t')
         #data = data[(int(data.shape[0]/2)):]
         data.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
         return data, 10000
