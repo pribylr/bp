@@ -67,19 +67,19 @@ class Visualizer():
             a = int(np.round(value/100.*len(pred_price_move), 0))
             return a
         ax1.pie([real_price_move.count(1), real_price_move.count(-1)],
-            labels=['price go up', 'price go down'],
+            labels=['price increased', 'price decreased'],
             autopct=absolute_value_real,
             colors=['#00C98D', '#E9413A'],
             startangle=95,
             labeldistance=1.00);
         ax2.pie([pred_price_move.count(1), pred_price_move.count(-1)],
-            labels=['price go up', 'price go down'],
+            labels=['price increased', 'price decreased'],
             autopct=absolute_value_pred,
             colors=['#00C98D', '#E9413A'],
             startangle=95,
             labeldistance=1.00);
-        ax1.set_title('How many real price movements');
-        ax2.set_title('How many predicted price movements');
+        ax1.set_title('How many real price changes');
+        ax2.set_title('How many predicted price changes');
 
     def plot_two_histograms(self, real_change_pct, pred_change_pct):
         fig = plt.figure(figsize=(12,6))
@@ -93,8 +93,8 @@ class Visualizer():
         ax2.set_xlim(min(real_change_pct + pred_change_pct), max(real_change_pct + pred_change_pct));
         ax1.set_ylim(0, max(counts1 + counts2) + 0.05*max(counts1 + counts2))
         ax2.set_ylim(0, max(counts1 + counts2) + 0.05*max(counts1 + counts2))
-        ax1.set_title('Real percentage price movements');
-        ax2.set_title('Predicted percentage price movements');
+        ax1.set_title('Real percentage price changes');
+        ax2.set_title('Predicted percentage price changes');
 
     def pie_number_of_price_movements_ternary(self, real_price_move: list, pred_price_move: list):
         fig = plt.figure(figsize=(12,6))
@@ -109,19 +109,19 @@ class Visualizer():
             return a
         
         ax1.pie([real_price_move.count(1), real_price_move.count(-1), real_price_move.count(0)],
-               labels=['price go up', 'price go down', 'nothing'],
+               labels=['price increased', 'price decreased', 'nothing'],
                autopct=absolute_value_real,
                colors=['#00C98D', '#E9413A', '#D0D0D0'],
                startangle=90,
                labeldistance=1.00);
         ax2.pie([pred_price_move.count(1), pred_price_move.count(-1), pred_price_move.count(0)],
-               labels=['price go up', 'price go down', 'nothing'],
+               labels=['price increased', 'price decreased', 'nothing'],
                autopct=absolute_value_pred,
                colors=['#00C98D', '#E9413A', '#D0D0D0'],
                startangle=90,
                labeldistance=1.00);
-        ax1.set_title('How many real price movements');
-        ax2.set_title('How many predicted price movements');
+        ax1.set_title('How many real price changes');
+        ax2.set_title('How many predicted price changes');
 
     def create_metrics_df(self, accuracy, precision, recall, f1):
         return pd.DataFrame({
@@ -138,8 +138,8 @@ class Visualizer():
         ax2.plot(thresholds, precisions, label='precision', c='#A315E6')
         ax2.plot(thresholds, recalls, label='recall', c='#FF9B00')
         ax2.plot(thresholds, f1s, label='f1 score', c='#66DA10')
-        ax1.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
-        ax2.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
+        # ax1.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
+        # ax2.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
         ax1.set_xlim(0, 1)
         ax2.set_xlim(0, 1)
         # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
@@ -176,5 +176,5 @@ class Visualizer():
         ax2.set_xlim(0, 1)
         # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
-        ax1.legend();
-        ax2.legend(fontsize=7);
+        ax1.legend(loc='upper left');
+        ax2.legend(loc='upper left', fontsize=7);

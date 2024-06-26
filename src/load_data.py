@@ -19,4 +19,3 @@ class DataLoader():
     def load_gpbusd_5min(self):
         data = pd.read_csv('data/GBPUSD5.csv')
         return data, 10000
-        
