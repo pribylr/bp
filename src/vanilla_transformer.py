@@ -238,13 +238,13 @@ class Decoder(tf.keras.layers.Layer):
         self.linear_out = tf.keras.layers.Dense(config['d_out'], activation='linear')
         #self.linear_out = tf.keras.layers.Dense(config['d_out'],activation='linear',bias_initializer='zeros')  # for (stationary) data with mean 0
 
-    def call_train(self, encoder_output, target, training):
-        shifted_inputs = tf.concat([self.last_known_data, target], axis=1)
-        shifted_inputs = self.embed(shifted_inputs)
+    def call_train(self, encoder_output, target, training):  # [batch, seq_Len, d_model] [batch, output_seq_len, target_features]
+        shifted_inputs = tf.concat([self.last_known_data, target], axis=1)  # [batch, seq_len, target_features]
+        shifted_inputs = self.embed(shifted_inputs)  # [batch, seq_len, d_model]
         shifted_inputs = PositionalEncoding(shifted_inputs)
         for i in range(self.decoder_layers_num):
-            shifted_inputs = self.decoder_layers[i](shifted_inputs, encoder_output, training)
-        out = self.linear_out(shifted_inputs)
+            shifted_inputs = self.decoder_layers[i](shifted_inputs, encoder_output, training)  # [batch, seq_len, d_model]
+        out = self.linear_out(shifted_inputs)  # [batch, seq_len, target_features]
         return out[:, :-1, :]
 
     def call_inference(self, encoder_output, training):
@@ -252,17 +252,18 @@ class Decoder(tf.keras.layers.Layer):
         # decoder input in first step is last data point from input sequence
         # with every step the decoder input longer by 1
         for i in range(self.output_seq_len):
-            new_input = tf.concat(self.generated_sequence, axis=1)
-            decoder_output_emb = self.embed(new_input)
+            new_input = tf.concat(self.generated_sequence, axis=1)  # [batch, current_seq_len, target_features]
+            decoder_output_emb = self.embed(new_input)  # [batch, current_seq_len, d_model]
             decoder_output_emb = PositionalEncoding(decoder_output_emb)
             for j in range(self.decoder_layers_num):
-                decoder_output_emb = self.decoder_layers[j](decoder_output_emb, encoder_output, training)
-            out = self.linear_out(decoder_output_emb)
+                decoder_output_emb = self.decoder_layers[j](decoder_output_emb, encoder_output, training)  # [batch, current_seq_len, d_model]
+            out = self.linear_out(decoder_output_emb)  # [batch, current_seq_len, target_features]
             self.generated_sequence.append(out[:, -1:, :])
         
         out = self.generated_sequence
-        out = tf.concat(out, axis=1)
-        out = out[:, 1:, :]
+        out = tf.concat(out, axis=1)  # [batch, target_seq_len+1, target_features]
+        # discard first element of the sequence which is the last known data point therefore not part of the forecast
+        out = out[:, 1:, :]  # [batch, target_seq_len, target_features]
         self.generated_sequence = []
         return out
     
