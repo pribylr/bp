@@ -142,8 +142,8 @@ class Visualizer():
         ax2.axhline(y=0.333, label='0.333', linestyle='--', c='blue')
         ax1.set_xlim(0, 1)
         ax2.set_xlim(0, 1)
-        ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
-        ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         ax1.set_title('Accuracy for different price movement thresholds')
         ax2.set_title('Precision, recall, f1 score for different price movement thresholds')
         ax1.set_xlabel('Price move percentage threshold')
@@ -174,7 +174,7 @@ class Visualizer():
         ax2.set_ylabel('Metrics values')
         ax1.set_xlim(0, 1)
         ax2.set_xlim(0, 1)
-        ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
-        ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
+        # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         ax1.legend();
         ax2.legend(fontsize=7);
