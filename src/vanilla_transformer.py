@@ -157,7 +157,6 @@ class EncoderLayer(tf.keras.layers.Layer):
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super(Encoder, self).__init__()
-        self.input_seq_len = config['input_seq_len']
         self.multihead_attn_heads = config['multihead_attn_heads']
         self.d_k = config['d_k']
         self.d_v = config['d_v']
@@ -280,7 +279,6 @@ class Decoder(tf.keras.layers.Layer):
 class Transformer(tf.keras.models.Model):
     def __init__(self, config, **kwargs):
         super(Transformer, self).__init__()
-        self.input_seq_len = config['input_seq_len']
         self.output_seq_len = config['output_seq_len']
         self.multihead_attn_heads = config['multihead_attn_heads']
         self.d_k = config['d_k']
