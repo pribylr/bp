@@ -144,16 +144,16 @@ class Visualizer():
         ax2.set_xlim(0, 1)
         # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
-        ax1.set_title('Accuracy for different price movement thresholds')
-        ax2.set_title('Precision, recall, f1 score for different price movement thresholds')
-        ax1.set_xlabel('Price move percentage threshold')
-        ax2.set_xlabel('Price move percentage threshold')
+        ax1.set_title('Accuracy for different price change thresholds')
+        ax2.set_title('Precision, recall, f1 score for different price change thresholds')
+        ax1.set_xlabel('Price change percentage threshold')
+        ax2.set_xlabel('Price change percentage threshold')
         ax1.set_ylabel('Accuracy value')
         ax2.set_ylabel('Metrics values')
         ax1.legend();
         ax2.legend();
 
-    def plot_metrics_binary(self, thresholds: list, accuracies: list, precisions: list, recalls: list, f1s: list, original_accuracy: float, original_precision: float, original_recall: float, original_f1: float):
+    def plot_metrics_binary(self, thresholds: list, accuracies: list, precisions: list, recalls: list, f1s: list, original_accuracy: float, original_precision: float, original_recall: float, original_f1: float, pos1: str, pos2: str):
         fig = plt.figure(figsize=(12,6))
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
@@ -166,15 +166,15 @@ class Visualizer():
         ax2.axhline(y=original_precision, label=f'precision with no threshold considered ({original_precision:.2f})', c='#A315E6', linestyle='--', alpha=0.7)
         ax2.axhline(y=original_recall, label=f'recall with no threshold considered ({original_recall:.2f})', c='#FF9B00', linestyle='--', alpha=0.7)
         ax2.axhline(y=original_f1, label=f'f1 score with no threshold considered ({original_f1:.2f})', c='#66DA10', linestyle='--', alpha=0.7)
-        ax1.set_title('Accuracy for different price movement thresholds')
-        ax2.set_title('Precision, recall, f1 score for different price movement thresholds')
-        ax1.set_xlabel('Price move percentage threshold')
-        ax2.set_xlabel('Price move percentage threshold')
+        ax1.set_title('Accuracy for different price change thresholds')
+        ax2.set_title('Precision, recall, f1 score for different price change thresholds')
+        ax1.set_xlabel('Price change percentage threshold')
+        ax2.set_xlabel('Price change percentage threshold')
         ax1.set_ylabel('Accuracy value')
         ax2.set_ylabel('Metrics values')
         ax1.set_xlim(0, 1)
         ax2.set_xlim(0, 1)
         # ax1.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
-        ax1.legend(loc='upper left');
-        ax2.legend(loc='upper left', fontsize=7);
+        ax1.legend(loc=pos1);
+        ax2.legend(loc=pos2, fontsize=7);
