@@ -178,3 +178,10 @@ class Visualizer():
         # ax2.set_ylim(min(accuracies+precisions+recalls+f1s)-0.02, max(accuracies+precisions+recalls+f1s)+0.02)
         ax1.legend(loc=pos1);
         ax2.legend(loc=pos2, fontsize=7);
+
+    def plot_heatmap_from_cm(self, cm):
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[0, 1], yticklabels=[0, 1])
+        plt.xlabel('Predicted')
+        plt.ylabel('Actual')
+        plt.title('Confusion Matrix')
+        plt.show()
