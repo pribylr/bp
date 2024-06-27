@@ -56,7 +56,7 @@ class DataProcessor():
 
     def find_pct_movements(self, input_sequences: np.array, real_values: pd.DataFrame, price_movements: list, pip_factor: int):
         """
-        function finds last data point of each input sequence
+        method finds last data point of each input sequence
         then calculates percentage change of an asset's price
         returns list of all percentage changes
         """
@@ -85,4 +85,11 @@ class DataProcessor():
         pred_price_movement_pct = [val1 for val1, val2 in zip(pred_price_movement_pct, pred_classes) if val2 != 0]
         return real_price_movement_pct, pred_price_movement_pct
 
+    def find_max_and_index(self, lst: list):
+        """
+        method find maximum value in a list and position of the value
+        """
+        mx = max(lst)
+        idx = lst.index(mx)
+        return mx, idx
         
