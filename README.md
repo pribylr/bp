@@ -6,9 +6,9 @@ This is a repository for bachelor's thesis: Utilization of Transformer architect
 This project contains two models implemented from scratch: the Transformer and Autoformer.
 
 Directories:
-data -- contains three CSV datasets that served as input data for the models.
-saved_models -- several models created, trained, and saved.
-src -- source code for the Transformer and Autoformer model as well as classes used for loading the datasets, pre-processing data, evaluating models,  training the models, and visualizations.
+data -- contains three CSV datasets that served as input data for the models.<br>
+saved_models -- several models created, trained, and saved.<br>
+src -- source code for the Transformer and Autoformer model as well as classes used for loading the datasets, pre-processing data, evaluating models,  training the models, and visualizations.<br>
 
 Ultimately, the models that are presented here, were trained to predict two different target variables:
 1. a sequence of prices of a forex currency pair
