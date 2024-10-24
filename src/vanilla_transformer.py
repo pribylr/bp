@@ -291,10 +291,11 @@ class Transformer(tf.keras.models.Model):
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
         self.batch_size = config['batch_size']
+        self.target_idx = config['target_idx']
 
     def call(self, input, target, training):
         enc_out = self.encoder(input, training)
-        dec_out = self.decoder(input[:, -1:, :] if training else tf.zeros((tf.shape(input)[0], 1, self.d_out)), enc_out, target, training)
+        dec_out = self.decoder(input[:, -1:, self.target_idx:self.target_idx+1], enc_out, target, training)
         out = tf.concat(dec_out, axis=1)
         return out
     
