@@ -5,7 +5,7 @@ This is a repository for bachelor's thesis: Utilization of Transformer architect
 
 This project contains two models implemented from scratch: the Transformer and Autoformer.
 
-Directories:
+Directories:<br>
 data -- contains three CSV datasets that served as input data for the models.<br>
 saved_models -- several models created, trained, and saved.<br>
 src -- source code for the Transformer and Autoformer model as well as classes used for loading the datasets, pre-processing data, evaluating models,  training the models, and visualizations.<br>
